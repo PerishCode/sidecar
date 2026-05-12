@@ -38,7 +38,7 @@ pub fn resolve_data_paths(
     let root = resolve_data_home(cli_data_home);
     let state = root.join("state");
     let project = manifest_data_dir
-        .map(PathBuf::from)
+        .map(|value| PathBuf::from(value.replace("{namespace}", namespace)))
         .unwrap_or_else(|| root.join("projects").join(namespace));
     DataPaths {
         root,

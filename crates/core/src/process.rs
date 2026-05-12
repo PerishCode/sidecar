@@ -4,7 +4,7 @@
 
 use crate::stamp::{read_flag, STAMP_APP_FLAG, STAMP_NAMESPACE_FLAG};
 #[cfg(unix)]
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StampedProcess {
@@ -91,6 +91,17 @@ pub fn parse_ps_output(text: &str) -> Vec<(u32, String)> {
 
 #[cfg(unix)]
 pub fn signal_terminate(pid: u32) -> Result<(), String> {
+    let process_group = format!("-{pid}");
+    let group_status = Command::new("kill")
+        .args(["-TERM", &process_group])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|err| format!("kill failed: {err}"))?;
+    if group_status.success() {
+        return Ok(());
+    }
+
     let status = Command::new("kill")
         .args(["-TERM", &pid.to_string()])
         .status()
@@ -98,7 +109,9 @@ pub fn signal_terminate(pid: u32) -> Result<(), String> {
     if status.success() {
         Ok(())
     } else {
-        Err(format!("kill -TERM {pid} exited with status {status}"))
+        Err(format!(
+            "kill -TERM -{pid} exited with status {group_status}; kill -TERM {pid} exited with status {status}"
+        ))
     }
 }
 

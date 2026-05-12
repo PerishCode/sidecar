@@ -9,12 +9,16 @@ pub mod stamp;
 pub mod state;
 
 pub use config::{
-    AppConfig, InspectConfig, InspectEndpointConfig, Manifest, ProjectConfig, SidecarConfig,
+    AppConfig, InheritEnvConfig, InspectConfig, InspectEndpointConfig, Manifest, ProjectConfig,
+    ReadyConfig, SidecarConfig,
 };
 pub use diagnostics::{Diagnostic, Severity};
 pub use inspect::{send as inspect_send, InspectRequest, InspectResponse};
 pub use paths::{resolve_data_home, resolve_data_paths, DataPaths};
-pub use plan::{AppPlan, ExecutionPlan, InspectEndpointPlan, SidecarPlan};
+pub use plan::{
+    AppPlan, ExecutionPlan, InheritEnvPlan, InspectEndpointPlan, ReadyPlan, SidecarPlan,
+    TargetKind, TargetPlan,
+};
 pub use process::{
     discover_by_app_namespace, discover_by_namespace, signal_terminate, StampedProcess,
 };
