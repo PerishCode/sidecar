@@ -93,7 +93,77 @@ There is no `--keep-data` or confirm prompt by design — predictability and ide
 - `crates/core/`: `Manifest` config, diagnostics, plan, socket parser, stamp protocol, process discovery, inspect client.
 - `crates/cli/`: CLI parsing, lifecycle execution (`start`/`stop`/`restart`/`status`/`list`/`reset`), `inspect <sidecar> <event> [payload]`, output formatting, exit behavior.
 - `scripts/manage/`: public installer entrypoints uploaded as release assets.
+- `scripts/init.py`: idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
 - `.github/scripts/`: workflow-only release helpers.
+
+## Standard Workflow
+
+### Initialize
+
+After cloning or when hooks look stale, run:
+
+```bash
+python3 scripts/init.py
+```
+
+The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, shell syntax checks, Python syntax checks, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
+
+Use `--force` only when intentionally replacing existing non-init hooks; the script backs them up first.
+
+### Branch Names
+
+Use `<area>/<kebab-case-slug>`, where `<area>` matches the touched crate or concern. Examples:
+
+- `cli/update-command`
+- `core/process-discovery`
+- `release/stable-dispatch`
+- `docs/install-readme`
+
+### Commit Messages
+
+Subject: `<area>: <imperative summary>` on one line, ideally <= 72 characters. The body explains why the change is shaped this way first, then the concrete change list. End with any `Co-Authored-By:` trailers when pair-coded or agent-assisted.
+
+### Pre-PR Checks
+
+Every PR must pass these commands before review:
+
+```bash
+cargo fmt --all --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+cargo run --locked -p cli -- doctor --config examples/minimal.toml
+```
+
+CI reruns them across Linux, Windows, and macOS.
+
+### PR Descriptions
+
+Use these top-level sections, in order:
+
+```markdown
+## Why
+<what is broken or missing today>
+
+## What
+<concrete change list; reference filenames and modules>
+
+## Tests
+<commands run and results>
+```
+
+Add `## Compatibility` when a manifest field, CLI flag, protocol field, output shape, or exit-code behavior moves. Add `## Trade-off worth flagging` when the change has a downside that reviewers should hold in mind.
+
+### Merging
+
+`main` is PR-only and protected by the repository ruleset `main guard`. The required merge gate is the `guard` matrix: `guard (ubuntu-latest)`, `guard (windows-latest)`, and `guard (macos-latest)`. Required approvals are intentionally `0`.
+
+After opening a non-draft PR, default to enabling repository auto-merge:
+
+```bash
+gh pr merge <num> --auto --squash --delete-branch
+```
+
+If auto-merge cannot be enabled, wait for green checks and fall back to the smallest equivalent manual command, usually `gh pr merge <num> --squash --delete-branch`.
 
 ## Stamp args protocol
 

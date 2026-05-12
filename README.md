@@ -17,10 +17,24 @@ Beta releases use the same installer with `--channel beta`.
 
 ## Local Smoke
 
+After cloning, initialize the local checkout:
+
+```sh
+python3 scripts/init.py
+```
+
+Run the fast local smoke path:
+
 ```sh
 cargo run --locked -p cli -- doctor --config examples/minimal.toml
 cargo run --locked -p cli -- plan   --config examples/minimal.toml --format json
 ```
+
+## Release
+
+Stable releases are started from the `release-stable` workflow (`.github/workflows/release.yml`). The workflow resolves the Cargo version against R2 metadata, runs verification, publishes artifacts and installers to R2, then creates the git tag after publish succeeds.
+
+Beta releases are started from `release-beta`. The workflow advances `vX.Y.Z-beta.N` from R2 beta metadata unless a version override is provided.
 
 ## Boundary
 

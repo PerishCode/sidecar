@@ -1,20 +1,29 @@
-name: release
+name: release-stable
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to release from"
+        required: true
+        default: main
+        type: string
+      version_override:
+        description: "Optional stable version override, for example v0.1.3"
+        required: false
+        default: ""
+        type: string
 
 permissions:
-  contents: read
+  actions: write
+  contents: write
 
 concurrency:
   group: sidecar-release-stable
   cancel-in-progress: false
 
 jobs:
-  validate:
-    if: ${{ !contains(github.ref_name, '-beta.') }}
+  metadata:
     runs-on: ubuntu-latest
     env:
       R2_ACCESS_PROBE_NAME: release-stable
@@ -24,24 +33,49 @@ jobs:
       SIDECAR_RELEASES_S3_BUCKET: ${{ secrets.SIDECAR_RELEASES_S3_BUCKET }}
       SIDECAR_RELEASES_S3_SK: ${{ secrets.SIDECAR_RELEASES_S3_SK }}
       SIDECAR_RELEASES_S3_URL: ${{ secrets.SIDECAR_RELEASES_S3_URL }}
+      STABLE_VERSION_OVERRIDE: ${{ inputs.version_override }}
+    outputs:
+      base_version: ${{ steps.stable.outputs.base_version }}
+      release_version: ${{ steps.stable.outputs.release_version }}
+      state_source: ${{ steps.stable.outputs.state_source }}
     steps:
       - uses: actions/checkout@v6
-
-      - name: Validate stable version
-        run: |
-          set -euo pipefail
-          cargo_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' crates/cli/Cargo.toml | head -n 1)
-          [ "v$cargo_version" = "${GITHUB_REF_NAME}" ] || {
-            printf 'version mismatch: Cargo.toml=%s tag=%s\n' "v$cargo_version" "${GITHUB_REF_NAME}" >&2
-            exit 1
-          }
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Validate R2 access
         run: bash .github/scripts/release/r2/check.sh
 
+      - name: Resolve stable metadata
+        id: stable
+        run: python3 .github/scripts/release/metadata/stable.py
+
+  verify:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Test
+        run: cargo test --locked --workspace
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: CLI smoke
+        run: cargo run --locked -p cli -- doctor --config examples/minimal.toml
+
   build:
-    if: ${{ !contains(github.ref_name, '-beta.') }}
-    needs: validate
+    needs: [metadata, verify]
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +95,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -69,56 +105,61 @@ jobs:
       - name: Package release artifact
         if: runner.os != 'Windows'
         env:
-          TARGET: ${{ matrix.target }}
           RELEASE_CHANNEL: stable
           SIDECAR_RELEASES_PUBLIC_URL: ${{ vars.SIDECAR_RELEASES_PUBLIC_URL }}
-        run: sh .github/scripts/release/assets/package.sh "${GITHUB_REF_NAME}"
+          TARGET: ${{ matrix.target }}
+        run: sh .github/scripts/release/assets/package.sh "${{ needs.metadata.outputs.release_version }}"
 
       - name: Package release artifact
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          TARGET: ${{ matrix.target }}
           RELEASE_CHANNEL: stable
           SIDECAR_RELEASES_PUBLIC_URL: ${{ vars.SIDECAR_RELEASES_PUBLIC_URL }}
-        run: ./.github/scripts/release/assets/package.ps1 "${env:GITHUB_REF_NAME}"
+          TARGET: ${{ matrix.target }}
+        run: ./.github/scripts/release/assets/package.ps1 "${{ needs.metadata.outputs.release_version }}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
-          path: dist/${{ github.ref_name }}/${{ matrix.archive }}
+          path: dist/${{ needs.metadata.outputs.release_version }}/${{ matrix.archive }}
 
   publish:
-    if: ${{ !contains(github.ref_name, '-beta.') }}
-    needs: build
+    needs: [metadata, build]
     runs-on: ubuntu-latest
     env:
+      BASE_VERSION: ${{ needs.metadata.outputs.base_version }}
       RELEASE_CHANNEL: stable
-      RELEASE_ROOT: dist/${{ github.ref_name }}
-      RELEASE_VERSION: ${{ github.ref_name }}
+      RELEASE_ROOT: dist/${{ needs.metadata.outputs.release_version }}
+      RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
       SIDECAR_RELEASES_PUBLIC_URL: ${{ vars.SIDECAR_RELEASES_PUBLIC_URL }}
       SIDECAR_RELEASES_S3_AK: ${{ secrets.SIDECAR_RELEASES_S3_AK }}
       SIDECAR_RELEASES_S3_BUCKET: ${{ secrets.SIDECAR_RELEASES_S3_BUCKET }}
       SIDECAR_RELEASES_S3_SK: ${{ secrets.SIDECAR_RELEASES_S3_SK }}
       SIDECAR_RELEASES_S3_URL: ${{ secrets.SIDECAR_RELEASES_S3_URL }}
+      STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}
     outputs:
       metadata_url: ${{ steps.r2.outputs.metadata_url }}
+      version_metadata_url: ${{ steps.r2.outputs.version_metadata_url }}
+      version_prefix: ${{ steps.r2.outputs.version_prefix }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: actions/download-artifact@v8
         with:
-          path: dist/${{ github.ref_name }}
+          path: dist/${{ needs.metadata.outputs.release_version }}
           merge-multiple: true
 
       - name: Create checksums
-        run: sh .github/scripts/release/assets/checksums.sh "${GITHUB_REF_NAME}" "dist/${GITHUB_REF_NAME}"
+        run: sh .github/scripts/release/assets/checksums.sh "${RELEASE_VERSION}" "${RELEASE_ROOT}"
 
       - name: Accept release assets
-        run: sh .github/scripts/release/assets/verify.sh accept "${GITHUB_REF_NAME}" "dist/${GITHUB_REF_NAME}"
+        run: sh .github/scripts/release/assets/verify.sh accept "${RELEASE_VERSION}" "${RELEASE_ROOT}"
 
       - name: Verify release archives
-        run: sh .github/scripts/release/assets/verify.sh verify "${GITHUB_REF_NAME}" "dist/${GITHUB_REF_NAME}"
+        run: sh .github/scripts/release/assets/verify.sh verify "${RELEASE_VERSION}" "${RELEASE_ROOT}"
 
       - name: Publish to R2
         id: r2
@@ -129,9 +170,33 @@ jobs:
           R2_METADATA_URL: ${{ steps.r2.outputs.metadata_url }}
         run: bash .github/scripts/release/r2/verify.sh
 
+      - name: Create and push git tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse --verify --quiet "refs/tags/${RELEASE_VERSION}" >/dev/null; then
+            echo "[release-stable] tag ${RELEASE_VERSION} already exists locally; skipping create"
+          else
+            git tag -a "${RELEASE_VERSION}" -m "${RELEASE_VERSION}"
+          fi
+          git push origin "refs/tags/${RELEASE_VERSION}"
+
+      - name: Publish summary
+        env:
+          R2_METADATA_URL: ${{ steps.r2.outputs.metadata_url }}
+          R2_VERSION_METADATA_URL: ${{ steps.r2.outputs.version_metadata_url }}
+          R2_VERSION_PREFIX: ${{ steps.r2.outputs.version_prefix }}
+        run: bash .github/scripts/release/r2/summary.sh
+
+      - name: Cleanup workflow artifacts
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/release/github/cleanup-artifacts.sh
+
   smoke:
-    if: ${{ !contains(github.ref_name, '-beta.') }}
-    needs: publish
+    needs: [metadata, publish]
     strategy:
       fail-fast: false
       matrix:
@@ -139,14 +204,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       SIDECAR_RELEASES_PUBLIC_URL: ${{ vars.SIDECAR_RELEASES_PUBLIC_URL }}
+      SMOKE_LATEST: "1"
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Smoke stable install on Unix
         if: runner.os != 'Windows'
-        run: sh .github/scripts/release/smoke/smoke.sh "${GITHUB_REF_NAME}" stable
+        run: sh .github/scripts/release/smoke/smoke.sh "${{ needs.metadata.outputs.release_version }}" stable
 
       - name: Smoke stable install on Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./.github/scripts/release/smoke/smoke.ps1 "${env:GITHUB_REF_NAME}" stable
+        run: ./.github/scripts/release/smoke/smoke.ps1 "${{ needs.metadata.outputs.release_version }}" stable
