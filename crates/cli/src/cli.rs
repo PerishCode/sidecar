@@ -29,51 +29,53 @@ pub fn channel() -> &'static str {
 }
 
 pub fn help_text() -> &'static str {
-    "sidecar\n\n\
-IPC-based sidecars project manager. Stamp args + inspect bridge over Unix sockets.\n\
-Product-agnostic: consumers provide explicit config and own product semantics.\n\n\
-Commands:\n  \
-  doctor   --config <path> [--format text|json]\n  \
-  plan     --config <path> [--format text|json]\n  \
-  inspect  config --config <path> [--format text|json]\n  \
-  inspect  <sidecar> <event> [<json-payload>] --config <path> [--format text|json]\n  \
-  start    --config <path> [<sidecar>]\n  \
-  restart  --config <path> [<sidecar>]\n  \
-  stop     --config <path> [<sidecar>]\n  \
-  status   --config <path> [--format text|json]\n  \
-  list     --config <path> [--format text|json]\n  \
-  reset    --config <path> [--all]\n  \
-  update\n  \
-  help\n  \
-  version\n\n\
-Global flags:\n  \
-  -p, --project <name>        override [project].namespace (== `docker compose -p`)\n  \
-      --data-home <path>      override the global data home root\n  \
-      --config <path>         explicit manifest path (no default reserved)\n  \
-      --format text|json      output format where applicable\n\n\
-Data home (where lifecycle state and update cache live):\n  \
-  Default: $XDG_DATA_HOME/sidecar (Unix) | %LOCALAPPDATA%\\sidecar (Windows).\n  \
-  Layout:  <data_home>/state/  and  <data_home>/projects/<namespace>/.\n  \
-  Override precedence: CLI --data-home > env SIDECAR_DATA_HOME > default.\n  \
-  Per-project override: manifest [project].data_dir replaces the projects/<ns> subdir.\n\n\
-Project scoping:\n  \
-  -p / --project / SIDECAR_PROJECT override [project].namespace at the CLI\n  \
-  level — same manifest can run as multiple isolated projects (separate stamp\n  \
-  namespace, separate data dir).\n\n\
-Reset (escape hatch):\n  \
-  `reset` kills all stamped processes in the namespace and removes\n  \
-  <data_home>/projects/<namespace>. Add --all to also wipe <data_home>/state.\n  \
-  Pair with installer `uninstall` + reinstall + re-author sidecar.toml per the\n  \
-  latest README to fully recover from any incompatible change.\n\n\
-Update:\n  \
-  Released builds check the current channel at startup; a notice on stderr\n  \
-  is the only side effect. `sidecar update` re-runs install.sh|ps1 against\n  \
-  the latest release. Override URL/channel with SIDECAR_RELEASES_PUBLIC_URL\n  \
-  and SIDECAR_CHANNEL; skip the check with SIDECAR_NO_UPDATE_CHECK=1; tune\n  \
-  cache with SIDECAR_UPDATE_TTL=<n>[smhd] (0 = always).\n\n\
-Feedback:\n  \
-  Report parser gaps, diagnostics noise, install issues, and missing capabilities at:\n  \
-  https://github.com/PerishCode/sidecar/issues"
+    r#"sidecar
+
+Product-neutral sidecar lifecycle and inspect IPC manager.
+It appends stamp args, discovers stamped processes, and sends one-shot inspect
+requests; consumers own product semantics and inspect server behavior.
+
+Commands:
+  doctor   --config <path> [--format text|json]
+  plan     --config <path> [--format text|json]
+  inspect  config --config <path> [--format text|json]
+  inspect  <sidecar> <event> [<json-payload>] --config <path> [--format text|json]
+  start    --config <path> [<sidecar>]
+  restart  --config <path> [<sidecar>]
+  stop     --config <path> [<sidecar>]
+  status   --config <path> [--format text|json]
+  list     --config <path> [--format text|json]
+  reset    --config <path> [--all]
+  update
+  help
+  version
+
+Global flags:
+  --config <path>       explicit manifest path; no default filename is reserved
+  -p, --project <name>  override [project].namespace, like docker compose -p
+  --data-home <path>    override global state/update-cache root
+  --format text|json    output format where the command supports it
+
+Model:
+  Manifest: [project], optional [app], repeated [[sidecars]], and optional
+  [[inspect.endpoints]]. See README.md for the schema.
+  Stamps: --sidecar-stamp-{app,namespace,mode,source} are the discovery contract.
+  Inspect: one JSON request/response line over unix:// sockets; TCP is fallback.
+  State: <data-home>/state plus <data-home>/projects/<namespace>; see AGENTS.md.
+
+Safety:
+  reset is the compatibility escape hatch: stop stamped processes and remove
+  project state; add --all to also remove global state.
+  update delegates to the released installer. Dev builds cannot self-update.
+
+Exit shape:
+  0 on success. 1 on config, diagnostic, lifecycle, inspect, or update failure.
+
+Project:
+  Source:  https://github.com/PerishCode/sidecar
+  Issues:  https://github.com/PerishCode/sidecar/issues
+  Details: README.md for usage/schema; AGENTS.md for boundaries and PR workflow.
+"#
 }
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
@@ -327,8 +329,22 @@ mod tests {
     #[test]
     fn help_exposes_issue_boundary() {
         let help = help_text();
+        assert!(help.contains("Product-neutral sidecar lifecycle and inspect IPC manager."));
+        assert!(help.contains("consumers own product semantics"));
+        assert!(help.contains("doctor   --config <path>"));
+        assert!(help.contains("inspect  <sidecar> <event> [<json-payload>]"));
+        assert!(help.contains("explicit manifest path; no default filename is reserved"));
+        assert!(help.contains("like docker compose -p"));
+        assert!(help.contains("--sidecar-stamp-{app,namespace,mode,source}"));
+        assert!(help.contains("README.md for usage/schema"));
+        assert!(help.contains("AGENTS.md for boundaries and PR workflow"));
+        assert!(help.contains("Source:  https://github.com/PerishCode/sidecar"));
         assert!(help.contains("https://github.com/PerishCode/sidecar/issues"));
-        assert!(help.contains("--config <path>"));
+        assert!(help.contains(
+            "0 on success. 1 on config, diagnostic, lifecycle, inspect, or update failure."
+        ));
+        assert!(!help.contains("%LOCALAPPDATA%"));
+        assert!(!help.contains("fully recover"));
     }
 
     #[test]
