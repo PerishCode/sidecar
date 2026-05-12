@@ -82,6 +82,7 @@ fn default_data_home() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::*;
     #[cfg(unix)]
     use std::sync::Mutex;
