@@ -4,8 +4,9 @@
 
 `sidecar` is the standalone home for an IPC-based sidecars project manager. It owns two product-neutral abstractions:
 
-1. **Stamp args** — `--sidecar-stamp-{app,namespace,mode,source}` flags appended to every spawned sidecar so the CLI can discover, status-check, and stop them cross-platform.
-2. **Inspect bridge** — a single-shot line-JSON request/response over a Unix socket (TCP fallback) for talking to a running sidecar's inspect server.
+1. **Manifest-closed lifecycle** — `sidecar.toml` defines command/cwd/args/env/stamps/readiness/inspect/status/stop/reset for every target.
+2. **Stamp args** — `--sidecar-stamp-{app,namespace,mode,source}` flags appended to spawned sidecars when the target accepts argv stamps; strict targets opt into explicit env stamping.
+3. **Inspect bridge** — a single-shot SidecarRuntime event frame over a Unix socket (TCP fallback) for talking to a running sidecar's inspect server.
 
 This repository is not a `stim.io` module. `stim.io` and other consumers install `sidecar` as a published CLI through the R2-backed `install.sh` / `install.ps1` entrypoints.
 
@@ -52,7 +53,7 @@ Sidecar's persistent runtime state has a single canonical root, the data home:
 - Default: `$XDG_DATA_HOME/sidecar` → `$HOME/.local/share/sidecar` on Unix, `%LOCALAPPDATA%\sidecar` on Windows.
 - Layout:
   - `<data_home>/state/` — global, namespace-independent (currently: update cache).
-  - `<data_home>/projects/<namespace>/` — per-project isolation (logs, runtime artifacts; populated by future work).
+  - `<data_home>/projects/<namespace>/` — per-project isolation (target pids, logs, runtime artifacts).
 
 Override precedence (highest wins): `--data-home <path>` (CLI) > `SIDECAR_DATA_HOME` (env) > platform default. The manifest `[project].data_dir` field replaces the per-project subdir only (it does not move `state/`); `state/` always sits directly under `<data_home>`.
 
@@ -70,7 +71,7 @@ Precedence: CLI flag > env > manifest. The manifest value becomes a default; CLI
 
 `sidecar reset --config <path>` is the single escape hatch from any incompatible-change failure mode. It:
 
-1. Terminates every stamped process in the current namespace.
+1. Terminates every stamped process and every manifest-recorded target pid in the current namespace.
 2. Removes `<data_home>/projects/<namespace>/` (manifest `data_dir` honored).
 3. With `--all`: also removes `<data_home>/state/` (wipes update cache, etc.).
 
@@ -183,9 +184,9 @@ Discovery uses only these flags via `ps -axo pid=,command=` on Unix; the impleme
 Wire format (one line per direction):
 
 ```
-request:  {"event":"...","payload":<json>}\n
-response: {"ok":true,"data":<json>}\n
-       or {"ok":false,"error":"..."}\n
+request:  {"kind":"event","id":"...","verb":"...","payload":<json>}\n
+response: {"kind":"event_response","id":"...","payload":<json>}\n
+       or {"kind":"event_error","id":"...","error":{"code":"...","message":"..."}}\n
 ```
 
 Default transport is Unix (`unix:///absolute/path.sock`). TCP is reserved for non-Unix fallback only.

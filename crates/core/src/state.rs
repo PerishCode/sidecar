@@ -55,6 +55,15 @@ impl DevState {
         if let Some(app) = &self.config.app {
             validate_required_name(&mut diagnostics, "app.name", &app.name);
             validate_required_name(&mut diagnostics, "app.command", &app.command);
+            validate_required_name(&mut diagnostics, "app.mode", &app.mode);
+            if let Some(socket) = &app.inspect_socket {
+                if let Err(error) = SocketEndpoint::parse(socket) {
+                    diagnostics.push(Diagnostic::error("app.inspect_socket", error.to_string()));
+                }
+            }
+            if let Some(ready) = &app.ready {
+                validate_required_name(&mut diagnostics, "app.ready.role", &ready.role);
+            }
         } else {
             diagnostics.push(Diagnostic::warning(
                 "app",
@@ -85,11 +94,9 @@ impl DevState {
                         error.to_string(),
                     ));
                 }
-            } else {
-                diagnostics.push(Diagnostic::warning(
-                    format!("{path}.inspect_socket"),
-                    "no inspect_socket is set; `sidecar inspect` will fail for this sidecar",
-                ));
+            }
+            if let Some(ready) = &sidecar.ready {
+                validate_required_name(&mut diagnostics, format!("{path}.ready.role"), &ready.role);
             }
         }
 
@@ -168,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn warns_when_inspect_socket_missing() {
+    fn allows_targets_without_inspect_socket() {
         let state = DevState {
             config_path: PathBuf::from("inline.toml"),
             config: toml::from_str(
@@ -184,7 +191,7 @@ mod tests {
             .unwrap(),
         };
         let diagnostics = state.diagnostics();
-        assert!(diagnostics
+        assert!(!diagnostics
             .iter()
             .any(|diagnostic| diagnostic.path == "sidecars[0].inspect_socket"));
     }
@@ -216,6 +223,7 @@ mod tests {
         assert_eq!(plan.project, "app");
         assert_eq!(plan.namespace, "default");
         assert_eq!(plan.app.unwrap().command, "pnpm");
+        assert_eq!(plan.targets.len(), 1);
         assert_eq!(plan.inspect_endpoints.len(), 1);
     }
 }

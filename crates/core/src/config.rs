@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -30,8 +32,22 @@ pub struct AppConfig {
     pub args: Vec<String>,
     #[serde(default = "default_root")]
     pub cwd: String,
+    #[serde(default = "default_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub stamp_via_env: bool,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub endpoint_env: Option<String>,
+    #[serde(default)]
+    pub inherits_env: Vec<InheritEnvConfig>,
+    #[serde(default)]
+    pub inspect_socket: Option<String>,
     #[serde(default)]
     pub health_url: Option<String>,
+    #[serde(default)]
+    pub ready: Option<ReadyConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -45,9 +61,32 @@ pub struct SidecarConfig {
     #[serde(default = "default_mode")]
     pub mode: String,
     #[serde(default)]
+    pub stamp_via_env: bool,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub endpoint_env: Option<String>,
+    #[serde(default)]
+    pub inherits_env: Vec<InheritEnvConfig>,
+    #[serde(default)]
     pub inspect_socket: Option<String>,
     #[serde(default)]
     pub health_url: Option<String>,
+    #[serde(default)]
+    pub ready: Option<ReadyConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ReadyConfig {
+    pub role: String,
+    #[serde(default = "default_ready_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InheritEnvConfig {
+    pub name: String,
+    pub from: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -73,4 +112,8 @@ fn default_namespace() -> String {
 
 fn default_mode() -> String {
     crate::stamp::DEFAULT_MODE.to_string()
+}
+
+fn default_ready_timeout_secs() -> u64 {
+    120
 }

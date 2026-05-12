@@ -1,6 +1,6 @@
 # sidecar
 
-IPC-based sidecars project manager. Stamp args + inspect bridge over Unix sockets — a small, product-agnostic CLI for managing the lifecycle of multiple sidecar processes for one project.
+IPC-based sidecars project manager. Manifest-closed lifecycle + stamp args + inspect events over Unix sockets — a small, product-agnostic CLI for managing multiple sidecar targets for one project.
 
 `sidecar` is intentionally product-agnostic. A consumer (such as `stim.io`) provides an explicit config file; the CLI turns that into validated development plans, lifecycle execution, and an inspect IPC channel.
 
@@ -42,7 +42,20 @@ Beta releases are started from `release-beta`. The workflow advances `vX.Y.Z-bet
 - `crates/cli` owns the installed `sidecar` command surface (lifecycle + inspect).
 - Consumers own product-specific manifest files and the actual inspect server implementations on their sidecars.
 
-## Stamp args protocol
+## Manifest Model
+
+`sidecar.toml` is the lifecycle contract, not a launch snippet. A target's command, cwd, args, static env, stamp delivery, readiness, inspect socket, status identity, stop behavior, and reset boundary must be derivable from the manifest plus product-neutral sidecar rules.
+
+Top-level shape:
+
+- `[project]`: `name`, `namespace`, optional `root`, optional `data_dir`
+- `[[sidecars]]`: background service targets, launched in declaration order
+- `[app]`: optional foreground app target, launched after sidecars
+- per target: `name`, `command`, `args`, `cwd`, `mode`, `env`, `stamp_via_env`, `inspect_socket`, `endpoint_env`, `inherits_env`, `ready`
+
+`inspect_socket` supports `{project}`, `{namespace}`, and `{name}` templates.
+
+## Stamp Args Protocol
 
 A consumer that uses `sidecar` to manage a process must accept (and ignore) the canonical stamp args appended to its command line:
 
@@ -53,14 +66,15 @@ A consumer that uses `sidecar` to manage a process must accept (and ignore) the 
 --sidecar-stamp-source=tool:sidecar
 ```
 
-These let `sidecar` discover, status-check, and stop running sidecars cross-platform.
+These let `sidecar` discover, status-check, and stop running sidecars cross-platform. Targets that cannot accept extra argv must set `stamp_via_env = true`; `sidecar` then records their pid in project state and injects stamp env for consumers that need it.
 
-## Inspect bridge
+## Inspect Bridge
 
-`sidecar inspect <sidecar> <event> [<json-payload>]` connects to the sidecar's `inspect_socket` and exchanges one line of JSON:
+`sidecar inspect <sidecar> <event> [<json-payload>]` connects to the target's `inspect_socket` and sends one SidecarRuntime event frame. Longer-running provider checks can pass `--inspect-timeout <seconds>`:
 
-- request:  `{"event":"...","payload":<json>}\n`
-- response: `{"ok":true,"data":<json>}\n` or `{"ok":false,"error":"..."}\n`
+- request:  `{"kind":"event","id":"...","verb":"...","payload":<json>}\n`
+- response: `{"kind":"event_response","id":"...","payload":<json>}\n`
+- error:    `{"kind":"event_error","id":"...","error":{"code":"...","message":"..."}}\n`
 
 Unix sockets are the canonical transport (`unix:///absolute/path.sock`). TCP (`tcp://host:port`) is reserved for non-Unix fallback or explicit compatibility probes.
 
