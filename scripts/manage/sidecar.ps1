@@ -28,7 +28,7 @@ sidecar installer
 Usage:
   sidecar.ps1 install [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
   sidecar.ps1 update  [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
-  sidecar.ps1 uninstall
+  sidecar.ps1 uninstall [--version vX.Y.Z]
 '@ | Write-Output
             exit 0
         }
@@ -86,6 +86,16 @@ function Uninstall-Sidecar {
     $cmd = Join-Path $localBinDir 'sidecar.cmd'
     Remove-Item -LiteralPath $cmd -Force -ErrorAction SilentlyContinue
     Write-Output "removed $cmd"
+
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Output "removed $installRoot"
+    }
+    else {
+        $versionRoot = Join-Path $installRoot $version
+        Remove-Item -LiteralPath $versionRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Output "removed $versionRoot"
+    }
 }
 
 switch ($command) {

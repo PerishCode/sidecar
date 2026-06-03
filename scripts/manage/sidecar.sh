@@ -64,7 +64,7 @@ sidecar installer
 Usage:
   sidecar.sh install [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
   sidecar.sh update  [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
-  sidecar.sh uninstall
+  sidecar.sh uninstall [--version vX.Y.Z]
 
 Environment:
   SIDECAR_RELEASES_PUBLIC_URL
@@ -132,8 +132,17 @@ install_sidecar() {
 }
 
 uninstall_sidecar() {
-  rm -f "$LOCAL_BIN_DIR/sidecar"
-  printf 'removed %s\n' "$LOCAL_BIN_DIR/sidecar"
+  link="$LOCAL_BIN_DIR/sidecar"
+  rm -f "$link"
+  printf 'removed %s\n' "$link"
+
+  if [ -n "$VERSION" ]; then
+    rm -rf "$INSTALL_ROOT/$VERSION"
+    printf 'removed %s\n' "$INSTALL_ROOT/$VERSION"
+  else
+    rm -rf "$INSTALL_ROOT"
+    printf 'removed %s\n' "$INSTALL_ROOT"
+  fi
 }
 
 case "$COMMAND" in

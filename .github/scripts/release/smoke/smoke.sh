@@ -20,10 +20,21 @@ sh "$ROOT/scripts/manage/sidecar.sh" install --channel "$CHANNEL" --version "$VE
 "$SIDECAR_LOCAL_BIN_DIR/sidecar" --version
 "$SIDECAR_LOCAL_BIN_DIR/sidecar" doctor --config "$ROOT/examples/minimal.toml"
 
+sh "$ROOT/scripts/manage/sidecar.sh" update --channel "$CHANNEL" --version "$VERSION"
+"$SIDECAR_LOCAL_BIN_DIR/sidecar" --version
+"$SIDECAR_LOCAL_BIN_DIR/sidecar" doctor --config "$ROOT/examples/minimal.toml"
+
+sh "$ROOT/scripts/manage/sidecar.sh" uninstall --version "$VERSION"
+[ ! -e "$SIDECAR_LOCAL_BIN_DIR/sidecar" ] || { printf '%s\n' "uninstall left $SIDECAR_LOCAL_BIN_DIR/sidecar" >&2; exit 1; }
+[ ! -e "$SIDECAR_INSTALL_ROOT/$VERSION" ] || { printf '%s\n' "version uninstall left $SIDECAR_INSTALL_ROOT/$VERSION" >&2; exit 1; }
+
 if [ "${SMOKE_LATEST:-}" = "1" ]; then
   rm -f "$SIDECAR_LOCAL_BIN_DIR/sidecar"
   rm -rf "$SIDECAR_INSTALL_ROOT/latest-smoke"
   sh "$ROOT/scripts/manage/sidecar.sh" install --channel "$CHANNEL" --install-root "$SIDECAR_INSTALL_ROOT/latest-smoke"
   "$SIDECAR_LOCAL_BIN_DIR/sidecar" --version
   "$SIDECAR_LOCAL_BIN_DIR/sidecar" doctor --config "$ROOT/examples/minimal.toml"
+  sh "$ROOT/scripts/manage/sidecar.sh" uninstall --install-root "$SIDECAR_INSTALL_ROOT/latest-smoke"
+  [ ! -e "$SIDECAR_LOCAL_BIN_DIR/sidecar" ] || { printf '%s\n' "latest uninstall left $SIDECAR_LOCAL_BIN_DIR/sidecar" >&2; exit 1; }
+  [ ! -e "$SIDECAR_INSTALL_ROOT/latest-smoke" ] || { printf '%s\n' "full uninstall left $SIDECAR_INSTALL_ROOT/latest-smoke" >&2; exit 1; }
 fi

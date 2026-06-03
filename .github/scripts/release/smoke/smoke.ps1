@@ -24,11 +24,30 @@ try {
     & (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') --version
     & (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') doctor --config (Join-Path $root 'examples/minimal.toml')
 
+    & "$root/scripts/manage/sidecar.ps1" update --channel $channel --version $version
+    & (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') --version
+    & (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') doctor --config (Join-Path $root 'examples/minimal.toml')
+
+    & "$root/scripts/manage/sidecar.ps1" uninstall --version $version
+    if (Test-Path (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd')) {
+        throw "uninstall left $(Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd')"
+    }
+    if (Test-Path (Join-Path $env:SIDECAR_INSTALL_ROOT $version)) {
+        throw "version uninstall left $(Join-Path $env:SIDECAR_INSTALL_ROOT $version)"
+    }
+
     if ($env:SMOKE_LATEST -eq '1') {
         Remove-Item -LiteralPath (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') -Force -ErrorAction SilentlyContinue
         & "$root/scripts/manage/sidecar.ps1" install --channel $channel --install-root (Join-Path $env:SIDECAR_INSTALL_ROOT 'latest-smoke')
         & (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') --version
         & (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd') doctor --config (Join-Path $root 'examples/minimal.toml')
+        & "$root/scripts/manage/sidecar.ps1" uninstall --install-root (Join-Path $env:SIDECAR_INSTALL_ROOT 'latest-smoke')
+        if (Test-Path (Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd')) {
+            throw "latest uninstall left $(Join-Path $env:SIDECAR_LOCAL_BIN_DIR 'sidecar.cmd')"
+        }
+        if (Test-Path (Join-Path $env:SIDECAR_INSTALL_ROOT 'latest-smoke')) {
+            throw "full uninstall left $(Join-Path $env:SIDECAR_INSTALL_ROOT 'latest-smoke')"
+        }
     }
 }
 finally {
