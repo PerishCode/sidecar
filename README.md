@@ -1,8 +1,20 @@
 # sidecar
 
-IPC-based sidecars project manager. Manifest-closed lifecycle + stamp args + inspect events over Unix sockets — a small, product-agnostic CLI for managing multiple sidecar targets for one project.
+Lightweight, manifest-driven process instance manager for projects that need to run a small set of cooperating local processes.
 
-`sidecar` is intentionally product-agnostic. A consumer (such as `stim.io`) provides an explicit config file; the CLI turns that into validated development plans, lifecycle execution, and an inspect IPC channel.
+`sidecar` turns an explicit config file into a validated process plan, lifecycle commands, process discovery, reset behavior, and an optional inspect IPC channel. It is intentionally product-agnostic: consumers own their manifests, product semantics, and inspect server implementations.
+
+The core mechanisms are:
+
+- **Manifest-closed lifecycle**: command, cwd, args, env, readiness, inspect socket, status identity, stop behavior, and reset boundary are declared up front.
+- **Packed stamp identity**: spawned processes receive one compact `--sidecar-stamp=...` arg so they can be discovered and managed later.
+- **Inspect bridge**: a single SidecarRuntime event frame over a Unix socket, with TCP reserved for fallback probes.
+
+## Why
+
+`sidecar` came out of a Tauri-adjacent development problem: one local app often needs a few cooperating processes nearby, such as a frontend shell, a backend service, a provider process, or an inspect server. Starting them is easy; keeping their identity, readiness, logs, namespace isolation, status, stop, and reset behavior predictable is the part that tends to spread into ad hoc scripts.
+
+This repository keeps that machinery small and product-neutral. It is not trying to become a general supervisor, service mesh, or deployment system. It is a narrow local tool for projects that need repeatable multi-process instances without baking product-specific meaning into the process manager.
 
 ## Install
 
