@@ -37,9 +37,17 @@ REQUIRED_PATHS = (
     ".github/workflows/release.yml",
     ".github/workflows/release-beta.yml",
     ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/scripts/release/assets/package.sh",
+    ".github/scripts/release/assets/package.ps1",
+    ".github/scripts/release/assets/checksums.sh",
+    ".github/scripts/release/assets/verify.sh",
     ".github/scripts/release/metadata/stable.py",
     ".github/scripts/release/metadata/beta.py",
+    ".github/scripts/release/r2/check.sh",
     ".github/scripts/release/r2/publish.sh",
+    ".github/scripts/release/r2/summary.sh",
+    ".github/scripts/release/r2/verify.sh",
+    ".github/scripts/release/github/cleanup-artifacts.sh",
     ".github/scripts/release/smoke/smoke.sh",
     ".github/scripts/release/smoke/smoke.ps1",
     "scripts/init.py",
@@ -71,6 +79,24 @@ bash -n .github/scripts/release/r2/publish.sh
 bash -n .github/scripts/release/r2/summary.sh
 bash -n .github/scripts/release/r2/verify.sh
 bash -n .github/scripts/release/github/cleanup-artifacts.sh
+
+echo "==> installer uninstall smoke"
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT INT TERM
+mkdir -p "$tmpdir/install/v0.1.0" "$tmpdir/install/v0.2.0" "$tmpdir/bin"
+touch "$tmpdir/bin/sidecar"
+SIDECAR_INSTALL_ROOT="$tmpdir/install" SIDECAR_LOCAL_BIN_DIR="$tmpdir/bin" \\
+  sh scripts/manage/sidecar.sh uninstall --version v0.1.0 >/dev/null
+test ! -e "$tmpdir/bin/sidecar"
+test ! -e "$tmpdir/install/v0.1.0"
+test -d "$tmpdir/install/v0.2.0"
+touch "$tmpdir/bin/sidecar"
+SIDECAR_INSTALL_ROOT="$tmpdir/install" SIDECAR_LOCAL_BIN_DIR="$tmpdir/bin" \\
+  sh scripts/manage/sidecar.sh uninstall >/dev/null
+test ! -e "$tmpdir/bin/sidecar"
+test ! -e "$tmpdir/install"
+rm -rf "$tmpdir"
+trap - EXIT INT TERM
 
 echo "==> Python syntax"
 python3 -m py_compile scripts/init.py

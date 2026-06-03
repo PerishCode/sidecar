@@ -107,7 +107,7 @@ After cloning or when hooks look stale, run:
 python3 scripts/init.py
 ```
 
-The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, shell syntax checks, Python syntax checks, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
+The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, shell syntax checks, a local installer uninstall smoke, Python syntax checks, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
 
 Use `--force` only when intentionally replacing existing non-init hooks; the script backs them up first.
 
