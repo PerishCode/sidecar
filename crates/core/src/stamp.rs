@@ -1,14 +1,13 @@
-//! Stamp args protocol — labels injected into a sidecar process command line so
-//! the `sidecar` tool can identify and operate on it later.
+//! Stamp args protocol — a packed identity label injected into a sidecar
+//! process command line so the `sidecar` tool can identify and operate on it
+//! later.
 //!
-//! Canonical flag names are `--sidecar-stamp-{app,namespace,mode,source}`.
-//! Discovery only relies on these flags (not env vars), so any consumer that
-//! emits the canonical flags is interoperable with the `sidecar` CLI.
+//! The canonical flag is `--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>`.
+//! Values are percent-encoded. Discovery only relies on this flag (not env
+//! vars), so any consumer that accepts and ignores the canonical flag is
+//! interoperable with the `sidecar` CLI.
 
-pub const STAMP_APP_FLAG: &str = "--sidecar-stamp-app";
-pub const STAMP_NAMESPACE_FLAG: &str = "--sidecar-stamp-namespace";
-pub const STAMP_MODE_FLAG: &str = "--sidecar-stamp-mode";
-pub const STAMP_SOURCE_FLAG: &str = "--sidecar-stamp-source";
+pub const STAMP_FLAG: &str = "--sidecar-stamp";
 
 pub const DEFAULT_NAMESPACE: &str = "default";
 pub const DEFAULT_MODE: &str = "dev";
@@ -24,19 +23,14 @@ pub struct Stamp {
 
 impl Stamp {
     pub fn args(&self) -> Vec<String> {
-        vec![
-            format!("{STAMP_APP_FLAG}={}", self.app),
-            format!("{STAMP_NAMESPACE_FLAG}={}", self.namespace),
-            format!("{STAMP_MODE_FLAG}={}", self.mode),
-            format!("{STAMP_SOURCE_FLAG}={}", self.source),
-        ]
+        vec![format!("{STAMP_FLAG}={}", encode(self))]
     }
 }
 
-pub fn read_flag(args: &[String], flag: &str) -> Option<String> {
-    let prefix = format!("{flag}=");
+pub fn read_flag(args: &[String]) -> Option<String> {
+    let prefix = format!("{STAMP_FLAG}=");
     for (index, value) in args.iter().enumerate() {
-        if value == flag {
+        if value == STAMP_FLAG {
             return args.get(index + 1).cloned();
         }
         if let Some(stripped) = value.strip_prefix(&prefix) {
@@ -47,12 +41,112 @@ pub fn read_flag(args: &[String], flag: &str) -> Option<String> {
 }
 
 pub fn read_stamp(args: &[String]) -> Option<Stamp> {
-    Some(Stamp {
-        app: read_flag(args, STAMP_APP_FLAG)?,
-        namespace: read_flag(args, STAMP_NAMESPACE_FLAG)?,
-        mode: read_flag(args, STAMP_MODE_FLAG)?,
-        source: read_flag(args, STAMP_SOURCE_FLAG)?,
+    read_flag(args).and_then(|value| decode(&value).ok())
+}
+
+pub fn encode(stamp: &Stamp) -> String {
+    format!(
+        "a={};n={};m={};s={}",
+        encode_value(&stamp.app),
+        encode_value(&stamp.namespace),
+        encode_value(&stamp.mode),
+        encode_value(&stamp.source),
+    )
+}
+
+pub fn decode(value: &str) -> Result<Stamp, String> {
+    let mut app = None;
+    let mut namespace = None;
+    let mut mode = None;
+    let mut source = None;
+
+    for part in value.split(';') {
+        let Some((key, raw_value)) = part.split_once('=') else {
+            return Err("stamp segment must use key=value form".to_string());
+        };
+        let decoded = decode_value(raw_value)?;
+        match key {
+            "a" if app.is_none() => app = Some(decoded),
+            "n" if namespace.is_none() => namespace = Some(decoded),
+            "m" if mode.is_none() => mode = Some(decoded),
+            "s" if source.is_none() => source = Some(decoded),
+            "a" | "n" | "m" | "s" => {
+                return Err(format!("duplicate stamp key {key:?}"));
+            }
+            other => return Err(format!("unknown stamp key {other:?}")),
+        }
+    }
+
+    Ok(Stamp {
+        app: required(app, "a")?,
+        namespace: required(namespace, "n")?,
+        mode: required(mode, "m")?,
+        source: required(source, "s")?,
     })
+}
+
+fn required(value: Option<String>, key: &str) -> Result<String, String> {
+    value.ok_or_else(|| format!("stamp missing {key:?}"))
+}
+
+fn encode_value(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if is_unreserved(byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(hex_char(byte >> 4));
+            encoded.push(hex_char(byte & 0x0f));
+        }
+    }
+    encoded
+}
+
+fn decode_value(value: &str) -> Result<String, String> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'%' => {
+                let Some(high) = bytes.get(index + 1).and_then(|byte| hex_value(*byte)) else {
+                    return Err("stamp value contains invalid percent escape".to_string());
+                };
+                let Some(low) = bytes.get(index + 2).and_then(|byte| hex_value(*byte)) else {
+                    return Err("stamp value contains invalid percent escape".to_string());
+                };
+                decoded.push((high << 4) | low);
+                index += 3;
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| "stamp value is not valid UTF-8".to_string())
+}
+
+fn is_unreserved(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_')
+}
+
+fn hex_char(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'A' + value - 10) as char,
+        _ => unreachable!(),
+    }
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -60,7 +154,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn args_emit_canonical_flags() {
+    fn args_emit_canonical_flag() {
         let stamp = Stamp {
             app: "controller".into(),
             namespace: "default".into(),
@@ -68,40 +162,65 @@ mod tests {
             source: "tool:sidecar".into(),
         };
         let args = stamp.args();
-        assert_eq!(args[0], "--sidecar-stamp-app=controller");
-        assert_eq!(args[1], "--sidecar-stamp-namespace=default");
-        assert_eq!(args[2], "--sidecar-stamp-mode=dev");
-        assert_eq!(args[3], "--sidecar-stamp-source=tool:sidecar");
-    }
-
-    #[test]
-    fn read_flag_supports_inline_and_separated_forms() {
-        let inline = vec!["--sidecar-stamp-app=api".to_string()];
-        assert_eq!(read_flag(&inline, STAMP_APP_FLAG).as_deref(), Some("api"));
-
-        let separated = vec![
-            "--sidecar-stamp-namespace".to_string(),
-            "design".to_string(),
-        ];
         assert_eq!(
-            read_flag(&separated, STAMP_NAMESPACE_FLAG).as_deref(),
-            Some("design")
+            args,
+            vec!["--sidecar-stamp=a=controller;n=default;m=dev;s=tool%3Asidecar"]
         );
     }
 
     #[test]
-    fn read_stamp_requires_all_four_flags() {
-        let partial = vec!["--sidecar-stamp-app=api".to_string()];
+    fn read_flag_supports_inline_and_separated_forms() {
+        let inline = vec!["--sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar".to_string()];
+        assert_eq!(
+            read_flag(&inline).as_deref(),
+            Some("a=api;n=default;m=dev;s=tool%3Asidecar")
+        );
+
+        let separated = vec![
+            "--sidecar-stamp".to_string(),
+            "a=api;n=design;m=dev;s=tool%3Asidecar".to_string(),
+        ];
+        assert_eq!(
+            read_flag(&separated).as_deref(),
+            Some("a=api;n=design;m=dev;s=tool%3Asidecar")
+        );
+    }
+
+    #[test]
+    fn read_stamp_requires_all_keys() {
+        let partial = vec!["--sidecar-stamp=a=api;n=default;m=dev".to_string()];
         assert!(read_stamp(&partial).is_none());
 
-        let full = vec![
-            "--sidecar-stamp-app=api".into(),
-            "--sidecar-stamp-namespace=default".into(),
-            "--sidecar-stamp-mode=dev".into(),
-            "--sidecar-stamp-source=tool:sidecar".into(),
-        ];
+        let full = vec!["--sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar".into()];
         let stamp = read_stamp(&full).unwrap();
         assert_eq!(stamp.app, "api");
         assert_eq!(stamp.source, "tool:sidecar");
+    }
+
+    #[test]
+    fn encode_decode_round_trips_reserved_characters() {
+        let stamp = Stamp {
+            app: "api worker".into(),
+            namespace: "dev;blue".into(),
+            mode: "runtime=1".into(),
+            source: "tool:%sidecar".into(),
+        };
+        let encoded = encode(&stamp);
+        assert_eq!(
+            encoded,
+            "a=api%20worker;n=dev%3Bblue;m=runtime%3D1;s=tool%3A%25sidecar"
+        );
+        assert_eq!(decode(&encoded).unwrap(), stamp);
+    }
+
+    #[test]
+    fn decode_rejects_unknown_or_duplicate_keys() {
+        assert!(decode("a=api;n=default;m=dev;s=tool%3Asidecar;x=no").is_err());
+        assert!(decode("a=api;a=api2;n=default;m=dev;s=tool%3Asidecar").is_err());
+    }
+
+    #[test]
+    fn decode_rejects_invalid_percent_encoding() {
+        assert!(decode("a=api%XX;n=default;m=dev;s=tool%3Asidecar").is_err());
     }
 }

@@ -57,16 +57,13 @@ Top-level shape:
 
 ## Stamp Args Protocol
 
-A consumer that uses `sidecar` to manage a process must accept (and ignore) the canonical stamp args appended to its command line:
+A consumer that uses `sidecar` to manage a process must accept (and ignore) the canonical packed stamp arg appended to its command line:
 
 ```
---sidecar-stamp-app=<sidecar.name>
---sidecar-stamp-namespace=<project.namespace>
---sidecar-stamp-mode=<sidecar.mode>
---sidecar-stamp-source=tool:sidecar
+--sidecar-stamp=a=<sidecar.name>;n=<project.namespace>;m=<sidecar.mode>;s=tool%3Asidecar
 ```
 
-These let `sidecar` discover, status-check, and stop running sidecars cross-platform. Targets that cannot accept extra argv must set `stamp_via_env = true`; `sidecar` then records their pid in project state and injects stamp env for consumers that need it.
+The short keys are `a` (app), `n` (namespace), `m` (mode), and `s` (source); values are percent-encoded. This lets `sidecar` discover, status-check, and stop running sidecars cross-platform. Targets that cannot accept extra argv must set `stamp_via_env = true`; `sidecar` then records their pid in project state and injects stamp env for consumers that need it.
 
 ## Inspect Bridge
 
