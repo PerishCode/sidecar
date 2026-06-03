@@ -64,7 +64,8 @@ Model:
   Manifest: [project], optional [app], repeated [[sidecars]], ready/env/inspect
   fields, and optional [[inspect.endpoints]]. See README.md for the schema.
   Lifecycle: command/cwd/args/env/stamps/ready/inspect/stop/reset close in manifest.
-  Stamps: --sidecar-stamp-{app,namespace,mode,source}; env stamping is explicit.
+  Stamps: --sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>;
+  values are percent-encoded; env stamping is explicit.
   Inspect: one SidecarRuntime event frame over unix:// sockets; TCP is fallback.
   State: <data-home>/state plus <data-home>/projects/<namespace>; see AGENTS.md.
 
@@ -375,7 +376,7 @@ mod tests {
         assert!(help.contains("--inspect-timeout <s>"));
         assert!(help.contains("explicit manifest path; no default filename is reserved"));
         assert!(help.contains("like docker compose -p"));
-        assert!(help.contains("--sidecar-stamp-{app,namespace,mode,source}"));
+        assert!(help.contains("--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>"));
         assert!(help.contains("README.md for usage/schema"));
         assert!(help.contains("AGENTS.md for boundaries and PR workflow"));
         assert!(help.contains("Source:  https://github.com/PerishCode/sidecar"));

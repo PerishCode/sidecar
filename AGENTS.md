@@ -5,7 +5,7 @@
 `sidecar` is the standalone home for an IPC-based sidecars project manager. It owns two product-neutral abstractions:
 
 1. **Manifest-closed lifecycle** — `sidecar.toml` defines command/cwd/args/env/stamps/readiness/inspect/status/stop/reset for every target.
-2. **Stamp args** — `--sidecar-stamp-{app,namespace,mode,source}` flags appended to spawned sidecars when the target accepts argv stamps; strict targets opt into explicit env stamping.
+2. **Stamp args** — a packed `--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>` flag appended to spawned sidecars when the target accepts argv stamps; strict targets opt into explicit env stamping.
 3. **Inspect bridge** — a single-shot SidecarRuntime event frame over a Unix socket (TCP fallback) for talking to a running sidecar's inspect server.
 
 This repository is not a `stim.io` module. `stim.io` and other consumers install `sidecar` as a published CLI through the R2-backed `install.sh` / `install.ps1` entrypoints.
@@ -61,7 +61,7 @@ Override precedence (highest wins): `--data-home <path>` (CLI) > `SIDECAR_DATA_H
 
 The CLI accepts `-p <name>` / `--project <name>` (and `SIDECAR_PROJECT` env) as a Docker-Compose-style override of the manifest `[project].namespace`. It re-keys everything that's namespace-scoped in one shot:
 
-- The stamp protocol's `namespace` flag on every spawned sidecar.
+- The stamp protocol's packed `n` namespace field on every spawned sidecar.
 - `discover_by_namespace` / `discover_by_app_namespace` lookups.
 - The `<data_home>/projects/<namespace>/` subdir.
 
@@ -168,16 +168,13 @@ If auto-merge cannot be enabled, wait for green checks and fall back to the smal
 
 ## Stamp args protocol
 
-Canonical flag names (consumers must accept and ignore them on their sidecar binaries):
+Canonical flag name (consumers must accept and ignore it on their sidecar binaries):
 
 ```
---sidecar-stamp-app=<sidecar.name>
---sidecar-stamp-namespace=<project.namespace>
---sidecar-stamp-mode=<sidecar.mode>           # e.g. dev / runtime
---sidecar-stamp-source=tool:sidecar
+--sidecar-stamp=a=<sidecar.name>;n=<project.namespace>;m=<sidecar.mode>;s=tool%3Asidecar
 ```
 
-Discovery uses only these flags via `ps -axo pid=,command=` on Unix; the implementation is in `crates/core/src/process.rs`.
+The short keys are `a` (app), `n` (namespace), `m` (mode), and `s` (source). Values are percent-encoded; for example `tool:sidecar` is encoded as `tool%3Asidecar`. Discovery uses only this flag via `ps -axo pid=,command=` on Unix; the implementation is in `crates/core/src/process.rs`.
 
 ## Inspect bridge
 

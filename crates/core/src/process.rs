@@ -2,7 +2,7 @@
 //!
 //! Unix uses `ps -axo pid=,command=`. Windows is not yet implemented.
 
-use crate::stamp::{read_flag, STAMP_APP_FLAG, STAMP_NAMESPACE_FLAG};
+use crate::stamp::read_stamp;
 #[cfg(unix)]
 use std::process::{Command, Stdio};
 
@@ -28,14 +28,14 @@ pub fn discover_by_namespace(namespace: &str) -> Result<Vec<StampedProcess>, Str
 }
 
 fn match_app(args: &[String], app: &str) -> bool {
-    read_flag(args, STAMP_APP_FLAG)
-        .map(|value| value == app)
+    read_stamp(args)
+        .map(|stamp| stamp.app == app)
         .unwrap_or(false)
 }
 
 fn match_namespace(args: &[String], namespace: &str) -> bool {
-    read_flag(args, STAMP_NAMESPACE_FLAG)
-        .map(|value| value == namespace)
+    read_stamp(args)
+        .map(|stamp| stamp.namespace == namespace)
         .unwrap_or(false)
 }
 
@@ -126,10 +126,17 @@ mod tests {
 
     #[test]
     fn parse_ps_extracts_pid_and_command() {
-        let text = "  123 cargo run --sidecar-stamp-app=api\n  456 node server.js\n";
+        let text =
+            "  123 cargo run --sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar\n  456 node server.js\n";
         let parsed = parse_ps_output(text);
         assert_eq!(parsed.len(), 2);
-        assert_eq!(parsed[0], (123, "cargo run --sidecar-stamp-app=api".into()));
+        assert_eq!(
+            parsed[0],
+            (
+                123,
+                "cargo run --sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar".into()
+            )
+        );
         assert_eq!(parsed[1], (456, "node server.js".into()));
     }
 
@@ -138,12 +145,11 @@ mod tests {
         let rows = vec![
             (
                 10,
-                "controller --sidecar-stamp-app=controller --sidecar-stamp-namespace=default"
-                    .into(),
+                "controller --sidecar-stamp=a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
             ),
             (
                 11,
-                "renderer --sidecar-stamp-app=renderer --sidecar-stamp-namespace=default".into(),
+                "renderer --sidecar-stamp=a=renderer;n=default;m=dev;s=tool%3Asidecar".into(),
             ),
             (12, "noise --no-stamp".into()),
         ];
