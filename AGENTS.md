@@ -8,7 +8,7 @@
 2. **Stamp args** — a packed `--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>` flag appended to spawned sidecars when the target accepts argv stamps; strict targets opt into explicit env stamping.
 3. **Inspect bridge** — a single-shot SidecarRuntime event frame over a Unix socket (TCP fallback) for talking to a running sidecar's inspect server.
 
-This repository is not a `stim.io` module. `stim.io` and other consumers install `sidecar` as a published CLI through the R2-backed `install.sh` / `install.ps1` entrypoints.
+This repository is not a `stim.io` module. `stim.io` and other consumers install `sidecar` as a published CLI through the R2-backed `manage.sh` / `manage.ps1` entrypoints.
 
 ## Core Rules
 
@@ -23,9 +23,9 @@ This repository is not a `stim.io` module. `stim.io` and other consumers install
 
 - The CLI never carries compatibility shims. Renaming or reshaping `Manifest`, CLI flags, the inspect protocol, the stamp protocol, or the installer surface is a hard cutover — no aliases, no deprecation warnings, no best-effort parsing of older shapes.
 - No internal migrations: there is no `state v1 → v2` translator, no schema-version field, no auto-rewrite of user `sidecar.toml`. Older configs that no longer parse must hard-fail with an error pointing the user at the latest README.
-- The escape hatch on any breakage is fixed and must always work: `sidecar reset` (kill stamped processes) → `sidecar.sh|ps1 uninstall` → reinstall the latest release → re-author `sidecar.toml` per the latest README. This single path replaces every other compatibility guarantee.
+- The escape hatch on any breakage is fixed and must always work: `sidecar reset` (kill stamped processes) → `manage.sh|ps1 uninstall` → reinstall the latest release → re-author `sidecar.toml` per the latest README. This single path replaces every other compatibility guarantee.
 - Versioning is `0.Y.Z` indefinitely. A `Y` bump is breaking by default; pre-1.0 SemVer carries the unstable contract for us — we do not promote to `1.0.0`.
-- The update mechanism itself follows the same rule: the startup check is best-effort and silently swallows every failure mode (network, parse, clock, missing curl); `sidecar update` is a thin wrapper around the installer (`install.sh|ps1 update`) — it does not decompress, verify, or roll back.
+- The update mechanism itself follows the same rule: the startup check is best-effort and silently swallows every failure mode (network, parse, clock, missing curl); `sidecar update` is a thin wrapper around the manager (`manage.sh|ps1 update`) — it does not decompress, verify, or roll back.
 
 ## Build-time Stamps
 
@@ -75,11 +75,17 @@ Precedence: CLI flag > env > manifest. The manifest value becomes a default; CLI
 2. Removes `<data_home>/projects/<namespace>/` (manifest `data_dir` honored).
 3. With `--all`: also removes `<data_home>/state/` (wipes update cache, etc.).
 
-There is no `--keep-data` or confirm prompt by design — predictability and idempotency are reset's contract. The install root and bin link are out of scope for `reset` (they belong to `install.sh|ps1 uninstall`). The fully-recovered state is: `sidecar reset --all` → `install.sh|ps1 uninstall` → reinstall latest → re-author `sidecar.toml` per the latest README.
+There is no `--keep-data` or confirm prompt by design — predictability and idempotency are reset's contract. The install root and bin link are out of scope for `reset` (they belong to `manage.sh|ps1 uninstall`). The fully-recovered state is: `sidecar reset --all` → `manage.sh|ps1 uninstall` → reinstall latest → re-author `sidecar.toml` per the latest README.
 
 ## Installer Verbs
 
-`scripts/manage/sidecar.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There is no `upgrade` alias. The CLI's `sidecar update` subcommand downloads the canonical installer for the current channel and execs it with the `update` verb.
+Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There is no `upgrade` alias. The CLI's `sidecar update` subcommand downloads the canonical manager for the current channel and execs it with the `update` verb.
+
+## Repo-local Support
+
+`runseal.toml` and `.runseal/wrappers/` are the repo-local operator entrypoints for support tasks that do not belong in the installable `sidecar` product binary. Local development requires `flavor v0.3.3+`, `runseal`, and `uv`. Current support command:
+
+- `runseal :cloudflare` — placeholder for the future `sidecar.perish.uk` mapping workflow. Do not implement or run Cloudflare changes until the token and mapping details are provided.
 
 ## Common Commands
 
@@ -88,12 +94,13 @@ There is no `--keep-data` or confirm prompt by design — predictability and ide
 - Clippy: `cargo clippy --locked --workspace --all-targets -- -D warnings`
 - CLI smoke: `cargo run --locked -p cli -- doctor --config examples/minimal.toml`
 - Plan: `cargo run --locked -p cli -- plan --config examples/minimal.toml --format json`
+- Flavor self-check: `flavor check --root . --config flavor.toml`
 
 ## Repository Shape
 
 - `crates/core/`: `Manifest` config, diagnostics, plan, socket parser, stamp protocol, process discovery, inspect client.
 - `crates/cli/`: CLI parsing, lifecycle execution (`start`/`stop`/`restart`/`status`/`list`/`reset`), `inspect <sidecar> <event> [payload]`, output formatting, exit behavior.
-- `scripts/manage/`: public installer entrypoints uploaded as release assets.
+- `manage.sh` and `manage.ps1`: public install/update/uninstall manager entrypoints uploaded as release assets.
 - `scripts/init.py`: idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
 - `.github/scripts/`: workflow-only release helpers.
 
@@ -107,7 +114,7 @@ After cloning or when hooks look stale, run:
 python3 scripts/init.py
 ```
 
-The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, shell syntax checks, a local installer uninstall smoke, Python syntax checks, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
+The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, flavor self-check, runseal profile, shell syntax checks, a local manager uninstall smoke, Python syntax checks, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
 
 Use `--force` only when intentionally replacing existing non-init hooks; the script backs them up first.
 
@@ -133,6 +140,7 @@ cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 cargo run --locked -p cli -- doctor --config examples/minimal.toml
+flavor check --root . --config flavor.toml
 ```
 
 CI reruns them across Linux, Windows, and macOS.

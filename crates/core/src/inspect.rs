@@ -154,41 +154,7 @@ fn next_event_id() -> String {
     format!("{micros}-{count}")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_ok_response() {
-        let parsed = parse_response(
-            "{\"kind\":\"event_response\",\"id\":\"req-1\",\"payload\":{\"answer\":42}}",
-            "req-1",
-        )
-        .unwrap();
-        match parsed {
-            InspectResponse::Ok(value) => {
-                assert_eq!(value.get("answer").and_then(Value::as_i64), Some(42));
-            }
-            other => panic!("expected ok response, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_error_response() {
-        let parsed = parse_response(
-            "{\"kind\":\"event_error\",\"id\":\"req-1\",\"error\":{\"code\":\"boom\",\"message\":\"failed\"}}",
-            "req-1",
-        )
-        .unwrap();
-        match parsed {
-            InspectResponse::Err(message) => assert_eq!(message, "boom: failed"),
-            other => panic!("expected error response, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn rejects_empty_response() {
-        let err = parse_response("", "req-1").unwrap_err();
-        assert!(err.contains("empty"));
-    }
+#[doc(hidden)]
+pub fn parse_response_for_test(text: &str, expected_id: &str) -> Result<InspectResponse, String> {
+    parse_response(text, expected_id)
 }

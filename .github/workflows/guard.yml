@@ -38,3 +38,9 @@ jobs:
 
       - name: CLI smoke
         run: cargo run --locked -p cli -- doctor --config examples/minimal.toml
+
+      - name: Install flavor
+        run: cargo install --git https://github.com/PerishCode/flavor --tag v0.3.3 --locked --package flavor-cli
+
+      - name: Flavor self-check
+        run: flavor check --root . --config flavor.toml

@@ -59,12 +59,12 @@ while [ $# -gt 0 ]; do
       ;;
     -h|--help|help)
       cat <<'EOF'
-sidecar installer
+sidecar manager
 
 Usage:
-  sidecar.sh install [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
-  sidecar.sh update  [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
-  sidecar.sh uninstall [--version vX.Y.Z]
+  manage.sh install [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
+  manage.sh update  [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
+  manage.sh uninstall [--version vX.Y.Z]
 
 Environment:
   SIDECAR_RELEASES_PUBLIC_URL

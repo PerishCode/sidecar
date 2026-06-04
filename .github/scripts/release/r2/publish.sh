@@ -54,10 +54,10 @@ for file_path in "$release_root"/sidecar-*.tar.gz "$release_root"/sidecar-*.zip 
   upload "$file_path" "$version_prefix/$name" "$(artifact_content_type "$name")" "public, max-age=31536000, immutable"
 done
 
-upload "$GITHUB_WORKSPACE/scripts/manage/sidecar.sh" "$version_prefix/install.sh" "text/x-shellscript; charset=utf-8" "public, max-age=31536000, immutable"
-upload "$GITHUB_WORKSPACE/scripts/manage/sidecar.ps1" "$version_prefix/install.ps1" "text/plain; charset=utf-8" "public, max-age=31536000, immutable"
-upload "$GITHUB_WORKSPACE/scripts/manage/sidecar.sh" "$latest_prefix/install.sh" "text/x-shellscript; charset=utf-8" "public, max-age=60, must-revalidate"
-upload "$GITHUB_WORKSPACE/scripts/manage/sidecar.ps1" "$latest_prefix/install.ps1" "text/plain; charset=utf-8" "public, max-age=60, must-revalidate"
+upload "$GITHUB_WORKSPACE/manage.sh" "$version_prefix/manage.sh" "text/x-shellscript; charset=utf-8" "public, max-age=31536000, immutable"
+upload "$GITHUB_WORKSPACE/manage.ps1" "$version_prefix/manage.ps1" "text/plain; charset=utf-8" "public, max-age=31536000, immutable"
+upload "$GITHUB_WORKSPACE/manage.sh" "$latest_prefix/manage.sh" "text/x-shellscript; charset=utf-8" "public, max-age=60, must-revalidate"
+upload "$GITHUB_WORKSPACE/manage.ps1" "$latest_prefix/manage.ps1" "text/plain; charset=utf-8" "public, max-age=60, must-revalidate"
 
 PUBLIC_URL="$public_url" \
 VERSION_PREFIX="$version_prefix" \
@@ -106,9 +106,9 @@ metadata = {
         "versionPrefix": version_prefix,
         "latestPrefix": latest_prefix,
     },
-    "install": {
-        "unix": f"{public_url}/{latest_prefix}/install.sh",
-        "windows": f"{public_url}/{latest_prefix}/install.ps1",
+    "manager": {
+        "unix": f"{public_url}/{latest_prefix}/manage.sh",
+        "windows": f"{public_url}/{latest_prefix}/manage.ps1",
     },
     "artifacts": {
         "linuxX64": artifact("sidecar-x86_64-unknown-linux-gnu.tar.gz", "application/gzip"),

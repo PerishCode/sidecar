@@ -21,11 +21,14 @@ This repository keeps that machinery small and product-neutral. It is not trying
 Release installation is R2-backed.
 
 ```sh
-curl -fsSL "$SIDECAR_RELEASES_PUBLIC_URL/stable/latest/install.sh" \
+curl -fsSL "$SIDECAR_RELEASES_PUBLIC_URL/stable/latest/manage.sh" \
   | sh -s -- install --channel stable --public-url "$SIDECAR_RELEASES_PUBLIC_URL"
 ```
 
-Beta releases use the same installer with `--channel beta`.
+Beta releases use the same manager with `--channel beta`. The planned
+`sidecar.perish.uk` release mapping is intentionally not automated in this
+checkout yet; keep using `SIDECAR_RELEASES_PUBLIC_URL` until that mapping is
+provisioned.
 
 ## Local Smoke
 
@@ -35,16 +38,20 @@ After cloning, initialize the local checkout:
 python3 scripts/init.py
 ```
 
+Local initialization expects `flavor v0.3.3+`, `runseal`, and `uv` to be
+available.
+
 Run the fast local smoke path:
 
 ```sh
 cargo run --locked -p cli -- doctor --config examples/minimal.toml
 cargo run --locked -p cli -- plan   --config examples/minimal.toml --format json
+flavor check --root . --config flavor.toml
 ```
 
 ## Release
 
-Stable releases are started from the `release-stable` workflow (`.github/workflows/release.yml`). The workflow resolves the Cargo version against R2 metadata, runs verification, publishes artifacts and installers to R2, then creates the git tag after publish succeeds.
+Stable releases are started from the `release-stable` workflow (`.github/workflows/release.yml`). The workflow resolves the Cargo version against R2 metadata, runs verification, publishes artifacts and managers to R2, then creates the git tag after publish succeeds.
 
 Beta releases are started from `release-beta`. The workflow advances `vX.Y.Z-beta.N` from R2 beta metadata unless a version override is provided.
 

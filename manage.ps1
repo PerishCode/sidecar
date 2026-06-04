@@ -23,12 +23,12 @@ for ($i = 0; $i -lt $rest.Length; $i++) {
         '^--bin-dir=(.+)$' { $localBinDir = $Matches[1]; continue }
         '^-h$|^--help$|^help$' {
             @'
-sidecar installer
+sidecar manager
 
 Usage:
-  sidecar.ps1 install [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
-  sidecar.ps1 update  [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
-  sidecar.ps1 uninstall [--version vX.Y.Z]
+  manage.ps1 install [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
+  manage.ps1 update  [--channel stable|beta] [--version vX.Y.Z] [--public-url <url>]
+  manage.ps1 uninstall [--version vX.Y.Z]
 '@ | Write-Output
             exit 0
         }
