@@ -17,6 +17,7 @@ Migrate `sidecar` onto the same repository and release operation shape as recent
 - [2026-06-04T14:50:39Z] Added `flavor.toml`, `runseal.toml`, `.runseal/wrappers/cloudflare` placeholder, and wired flavor self-check into init/guard/release verify paths.
 - [2026-06-04T14:50:39Z] Per aggressive alignment request, moved Rust inline tests into integration tests and split CLI command/render/runtime modules until flavor reports no issues.
 - [2026-06-04T14:50:39Z] Verification passed: `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace`, `flavor check --root . --config flavor.toml`, `python3 scripts/init.py`, CLI doctor/plan smoke, shell syntax checks, and `runseal :cloudflare --help`.
+- [2026-06-04T14:59:37Z] Added `.gitignore` coverage for `__pycache__/` and `*.py[cod]`; reran `python3 scripts/init.py` and confirmed `.git/hooks/pre-commit` / `commit-msg` are installed and executable.
 
 ## Technical Notes
 - **Files Touched:** `.task/MAIN.md`, `.task/archive/PHASE_1.1.r1.md`, `.task/PHASE_1.2.md`, `flavor.toml`, `runseal.toml`, `.runseal/wrappers/cloudflare`, `manage.sh`, `manage.ps1`, `scripts/init.py`, README/AGENTS, release workflows/scripts, CLI update/output/commands modules, Rust integration tests.
