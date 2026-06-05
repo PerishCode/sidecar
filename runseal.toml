@@ -1,0 +1,10 @@
+[resources]
+root = ".local"
+
+[[injections]]
+type = "env"
+
+[injections.vars]
+SIDECAR_REPO_LOCAL_DIR = "resource://"
+SIDECAR_REPO_SECRETS_DIR = "resource://secrets"
+SIDECAR_REPO_TMP_DIR = "resource://tmp"

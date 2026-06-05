@@ -19,6 +19,9 @@ REQUIRED_TOOLS = (
     "git",
     "python3",
     "cargo",
+    "flavor",
+    "runseal",
+    "uv",
     "sh",
     "bash",
     "curl",
@@ -30,9 +33,13 @@ REQUIRED_PATHS = (
     "AGENTS.md",
     "Cargo.toml",
     "Cargo.lock",
+    "flavor.toml",
+    "manage.sh",
+    "manage.ps1",
+    "runseal.toml",
+    ".runseal/lib/python-module",
+    ".runseal/wrappers/cloudflare",
     "examples/minimal.toml",
-    "scripts/manage/sidecar.sh",
-    "scripts/manage/sidecar.ps1",
     ".github/workflows/guard.yml",
     ".github/workflows/release.yml",
     ".github/workflows/release-beta.yml",
@@ -51,6 +58,11 @@ REQUIRED_PATHS = (
     ".github/scripts/release/smoke/smoke.sh",
     ".github/scripts/release/smoke/smoke.ps1",
     "scripts/init.py",
+    "scripts/pyproject.toml",
+    "scripts/cli/cloudflare.py",
+    "scripts/lib/cloudflare.py",
+    "scripts/lib/utils/cli.py",
+    "scripts/lib/utils/paths.py",
 )
 
 PRE_COMMIT_HOOK = f"""#!/usr/bin/env sh
@@ -68,8 +80,16 @@ cargo check --locked --workspace
 echo "==> CLI smoke"
 cargo run --locked -p cli -- doctor --config examples/minimal.toml
 
+echo "==> flavor self-check"
+flavor check --root . --config flavor.toml
+
+echo "==> runseal profile"
+runseal @profile >/dev/null
+
 echo "==> shell syntax"
-sh -n scripts/manage/sidecar.sh
+sh -n manage.sh
+sh -n .runseal/lib/python-module
+sh -n .runseal/wrappers/cloudflare
 sh -n .github/scripts/release/assets/package.sh
 sh -n .github/scripts/release/assets/checksums.sh
 sh -n .github/scripts/release/assets/verify.sh
@@ -80,19 +100,19 @@ bash -n .github/scripts/release/r2/summary.sh
 bash -n .github/scripts/release/r2/verify.sh
 bash -n .github/scripts/release/github/cleanup-artifacts.sh
 
-echo "==> installer uninstall smoke"
+echo "==> manager uninstall smoke"
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT INT TERM
 mkdir -p "$tmpdir/install/v0.1.0" "$tmpdir/install/v0.2.0" "$tmpdir/bin"
 touch "$tmpdir/bin/sidecar"
 SIDECAR_INSTALL_ROOT="$tmpdir/install" SIDECAR_LOCAL_BIN_DIR="$tmpdir/bin" \\
-  sh scripts/manage/sidecar.sh uninstall --version v0.1.0 >/dev/null
+  sh manage.sh uninstall --version v0.1.0 >/dev/null
 test ! -e "$tmpdir/bin/sidecar"
 test ! -e "$tmpdir/install/v0.1.0"
 test -d "$tmpdir/install/v0.2.0"
 touch "$tmpdir/bin/sidecar"
 SIDECAR_INSTALL_ROOT="$tmpdir/install" SIDECAR_LOCAL_BIN_DIR="$tmpdir/bin" \\
-  sh scripts/manage/sidecar.sh uninstall >/dev/null
+  sh manage.sh uninstall >/dev/null
 test ! -e "$tmpdir/bin/sidecar"
 test ! -e "$tmpdir/install"
 rm -rf "$tmpdir"
@@ -100,6 +120,10 @@ trap - EXIT INT TERM
 
 echo "==> Python syntax"
 python3 -m py_compile scripts/init.py
+python3 -m py_compile scripts/cli/cloudflare.py
+python3 -m py_compile scripts/lib/cloudflare.py
+python3 -m py_compile scripts/lib/utils/cli.py
+python3 -m py_compile scripts/lib/utils/paths.py
 python3 -m py_compile .github/scripts/release/metadata/stable.py
 python3 -m py_compile .github/scripts/release/metadata/beta.py
 
@@ -112,7 +136,7 @@ foreach ($path in $args) {{
   [scriptblock]::Create((Get-Content -Raw $path)) | Out-Null
 }}
 ' \\
-    scripts/manage/sidecar.ps1 \\
+    manage.ps1 \\
     .github/scripts/release/assets/package.ps1 \\
     .github/scripts/release/smoke/smoke.ps1
 else

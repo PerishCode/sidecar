@@ -77,6 +77,12 @@ jobs:
       - name: CLI smoke
         run: cargo run --locked -p cli -- doctor --config examples/minimal.toml
 
+      - name: Install flavor
+        run: curl -fsSL https://flavor.perish.uk/manage.sh | sh -s -- install
+
+      - name: Flavor self-check
+        run: flavor check --root . --config flavor.toml
+
   build:
     needs: [metadata, verify]
     strategy:

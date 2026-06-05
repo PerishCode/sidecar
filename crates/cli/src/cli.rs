@@ -72,7 +72,7 @@ Model:
 Safety:
   reset is the compatibility escape hatch: stop stamped processes and remove
   project state; add --all to also remove global state.
-  update delegates to the released installer. Dev builds cannot self-update.
+  update delegates to the released manager. Dev builds cannot self-update.
 
 Exit shape:
   0 on success. 1 on config, diagnostic, lifecycle, inspect, or update failure.
@@ -138,37 +138,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let state = load_state(&parsed)?;
             print_plan(&state.execution_plan(), parsed.format)
         }
-        "inspect" => match parsed.command.len() {
-            1 => Err("inspect requires `config` or `<sidecar> <event> [payload]`".to_string()),
-            _ if parsed.command[1] == "config" => {
-                require_no_extra_args(&parsed, 2, "inspect config")?;
-                let state = load_state(&parsed)?;
-                print_plan(&state.execution_plan(), parsed.format)
-            }
-            len => {
-                if len < 3 {
-                    return Err(
-                        "inspect <sidecar> <event> [payload] — event is required".to_string()
-                    );
-                }
-                if len > 4 {
-                    return Err(format!(
-                        "unsupported inspect arguments: {}",
-                        parsed.command[4..].join(" ")
-                    ));
-                }
-                let state = load_state(&parsed)?;
-                let payload = parsed.command.get(3).map(String::as_str);
-                commands::inspect(
-                    &state,
-                    &parsed.command[1],
-                    &parsed.command[2],
-                    payload,
-                    Duration::from_secs(parsed.inspect_timeout_secs),
-                    parsed.format,
-                )
-            }
-        },
+        "inspect" => run_inspect_command(&parsed),
         "start" | "stop" | "restart" => {
             let target = optional_target(&parsed, cmd)?;
             let state = load_state(&parsed)?;
@@ -202,6 +172,34 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             "unknown command: {}; run `sidecar help`",
             parsed.command.join(" ")
         )),
+    }
+}
+
+fn run_inspect_command(parsed: &ParsedArgs) -> Result<(), String> {
+    match parsed.command.len() {
+        1 => Err("inspect requires `config` or `<sidecar> <event> [payload]`".to_string()),
+        _ if parsed.command[1] == "config" => {
+            require_no_extra_args(parsed, 2, "inspect config")?;
+            let state = load_state(parsed)?;
+            print_plan(&state.execution_plan(), parsed.format)
+        }
+        len if len < 3 => Err("inspect <sidecar> <event> [payload] — event is required".into()),
+        len if len > 4 => Err(format!(
+            "unsupported inspect arguments: {}",
+            parsed.command[4..].join(" ")
+        )),
+        _ => {
+            let state = load_state(parsed)?;
+            let payload = parsed.command.get(3).map(String::as_str);
+            commands::inspect(
+                &state,
+                &parsed.command[1],
+                &parsed.command[2],
+                payload,
+                Duration::from_secs(parsed.inspect_timeout_secs),
+                parsed.format,
+            )
+        }
     }
 }
 
@@ -362,144 +360,35 @@ fn parse_positive_seconds(option: &str, value: &str) -> Result<u64, String> {
     Ok(seconds)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[doc(hidden)]
+pub mod __test {
+    use super::{parse, OutputFormat};
 
-    #[test]
-    fn help_exposes_issue_boundary() {
-        let help = help_text();
-        assert!(help.contains("Product-neutral sidecar lifecycle and inspect IPC manager."));
-        assert!(help.contains("consumers own product semantics"));
-        assert!(help.contains("doctor   --config <path>"));
-        assert!(help.contains("inspect  <sidecar> <event> [<json-payload>]"));
-        assert!(help.contains("--inspect-timeout <s>"));
-        assert!(help.contains("explicit manifest path; no default filename is reserved"));
-        assert!(help.contains("like docker compose -p"));
-        assert!(help.contains("--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>"));
-        assert!(help.contains("README.md for usage/schema"));
-        assert!(help.contains("AGENTS.md for boundaries and PR workflow"));
-        assert!(help.contains("Source:  https://github.com/PerishCode/sidecar"));
-        assert!(help.contains("https://github.com/PerishCode/sidecar/issues"));
-        assert!(help.contains(
-            "0 on success. 1 on config, diagnostic, lifecycle, inspect, or update failure."
-        ));
-        assert!(!help.contains("%LOCALAPPDATA%"));
-        assert!(!help.contains("fully recover"));
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct ParseSummary {
+        pub command: Vec<String>,
+        pub config: Option<String>,
+        pub format: &'static str,
+        pub data_home: Option<String>,
+        pub project: Option<String>,
+        pub timeout_secs: u64,
+        pub reset_all: bool,
     }
 
-    #[test]
-    fn parses_global_config_after_command() {
-        let parsed = parse(vec![
-            "sidecar".into(),
-            "doctor".into(),
-            "--config".into(),
-            "examples/minimal.toml".into(),
-            "--format=json".into(),
-        ])
-        .unwrap();
-
-        assert_eq!(parsed.command, vec!["doctor"]);
-        assert_eq!(parsed.config.as_deref(), Some("examples/minimal.toml"));
-        assert_eq!(parsed.format, OutputFormat::Json);
-    }
-
-    #[test]
-    fn parses_version_flags_as_commands() {
-        let parsed = parse(vec!["sidecar".into(), "--version".into()]).unwrap();
-        assert_eq!(parsed.command, vec!["--version"]);
-    }
-
-    #[test]
-    fn parses_inspect_with_payload_argument() {
-        let parsed = parse(vec![
-            "sidecar".into(),
-            "inspect".into(),
-            "controller".into(),
-            "host".into(),
-            "{\"window\":\"main\"}".into(),
-            "--config".into(),
-            "x.toml".into(),
-        ])
-        .unwrap();
-        assert_eq!(
-            parsed.command,
-            vec!["inspect", "controller", "host", "{\"window\":\"main\"}"]
-        );
-        assert_eq!(parsed.config.as_deref(), Some("x.toml"));
-        assert_eq!(parsed.inspect_timeout_secs, INSPECT_DEFAULT_TIMEOUT_SECS);
-    }
-
-    #[test]
-    fn parses_inspect_timeout() {
-        let parsed = parse(vec![
-            "sidecar".into(),
-            "inspect".into(),
-            "controller".into(),
-            "accept.messaging".into(),
-            "{\"text\":\"hello\"}".into(),
-            "--inspect-timeout".into(),
-            "60".into(),
-            "--config".into(),
-            "x.toml".into(),
-        ])
-        .unwrap();
-
-        assert_eq!(parsed.inspect_timeout_secs, 60);
-    }
-
-    #[test]
-    fn rejects_zero_inspect_timeout() {
-        let error = parse(vec![
-            "sidecar".into(),
-            "inspect".into(),
-            "controller".into(),
-            "runtime.snapshot".into(),
-            "--inspect-timeout=0".into(),
-            "--config".into(),
-            "x.toml".into(),
-        ])
-        .unwrap_err();
-
-        assert!(error.contains("--inspect-timeout requires a positive integer value"));
-    }
-
-    #[test]
-    fn parses_project_short_and_long() {
-        let parsed_short = parse(vec![
-            "sidecar".into(),
-            "-p".into(),
-            "staging".into(),
-            "status".into(),
-            "--config=x.toml".into(),
-        ])
-        .unwrap();
-        assert_eq!(parsed_short.project_override.as_deref(), Some("staging"));
-
-        let parsed_long = parse(vec![
-            "sidecar".into(),
-            "--project=prod".into(),
-            "list".into(),
-            "--config".into(),
-            "x.toml".into(),
-        ])
-        .unwrap();
-        assert_eq!(parsed_long.project_override.as_deref(), Some("prod"));
-    }
-
-    #[test]
-    fn parses_data_home_and_reset_all() {
-        let parsed = parse(vec![
-            "sidecar".into(),
-            "--data-home".into(),
-            "/var/sidecar".into(),
-            "reset".into(),
-            "--all".into(),
-            "--config".into(),
-            "x.toml".into(),
-        ])
-        .unwrap();
-        assert_eq!(parsed.data_home.as_deref(), Some("/var/sidecar"));
-        assert!(parsed.reset_all);
+    pub fn parse_args(args: Vec<&str>) -> Result<ParseSummary, String> {
+        let parsed = parse(args.into_iter().map(String::from).collect())?;
+        let format = match parsed.format {
+            OutputFormat::Text => "text",
+            OutputFormat::Json => "json",
+        };
+        Ok(ParseSummary {
+            command: parsed.command,
+            config: parsed.config,
+            format,
+            data_home: parsed.data_home,
+            project: parsed.project_override,
+            timeout_secs: parsed.inspect_timeout_secs,
+            reset_all: parsed.reset_all,
+        })
     }
 }

@@ -55,6 +55,17 @@ where
         .collect()
 }
 
+#[doc(hidden)]
+pub fn filter_for_test(
+    rows: Vec<(u32, String)>,
+    app: &str,
+    namespace: &str,
+) -> Vec<StampedProcess> {
+    filter_stamped(rows, |args| {
+        match_app(args, app) && match_namespace(args, namespace)
+    })
+}
+
 #[cfg(unix)]
 fn ps_command_lines() -> Result<Vec<(u32, String)>, String> {
     let output = Command::new("ps")
@@ -118,45 +129,4 @@ pub fn signal_terminate(pid: u32) -> Result<(), String> {
 #[cfg(not(unix))]
 pub fn signal_terminate(_pid: u32) -> Result<(), String> {
     Err("process termination is not yet implemented on this platform".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_ps_extracts_pid_and_command() {
-        let text =
-            "  123 cargo run --sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar\n  456 node server.js\n";
-        let parsed = parse_ps_output(text);
-        assert_eq!(parsed.len(), 2);
-        assert_eq!(
-            parsed[0],
-            (
-                123,
-                "cargo run --sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar".into()
-            )
-        );
-        assert_eq!(parsed[1], (456, "node server.js".into()));
-    }
-
-    #[test]
-    fn filter_picks_app_namespace_matches() {
-        let rows = vec![
-            (
-                10,
-                "controller --sidecar-stamp=a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
-            ),
-            (
-                11,
-                "renderer --sidecar-stamp=a=renderer;n=default;m=dev;s=tool%3Asidecar".into(),
-            ),
-            (12, "noise --no-stamp".into()),
-        ];
-        let hits = filter_stamped(rows, |args| {
-            match_app(args, "controller") && match_namespace(args, "default")
-        });
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].pid, 10);
-    }
 }

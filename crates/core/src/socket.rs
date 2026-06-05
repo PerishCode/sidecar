@@ -84,24 +84,3 @@ fn validate_tcp_address(address: &str) -> Result<(), SocketEndpointParseError> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_unix_endpoint() {
-        let endpoint = SocketEndpoint::parse("unix:///tmp/sidecar.sock").unwrap();
-        assert_eq!(
-            endpoint,
-            SocketEndpoint::Unix(PathBuf::from("/tmp/sidecar.sock"))
-        );
-        assert_eq!(endpoint.as_endpoint(), "unix:///tmp/sidecar.sock");
-    }
-
-    #[test]
-    fn rejects_bare_tcp_endpoint() {
-        let error = SocketEndpoint::parse("127.0.0.1:3901").unwrap_err();
-        assert!(error.to_string().contains("unix:///path.sock"));
-    }
-}

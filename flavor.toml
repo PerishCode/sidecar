@@ -1,0 +1,14 @@
+[scan]
+include = [
+  "crates/*/src/**",
+  "crates/*/tests/**",
+  "scripts/**/*.py",
+  ".github/scripts/**/*.py",
+]
+exclude = [
+  "**/target/**",
+  "dist/**",
+  ".local/**",
+  "scripts/.venv/**",
+]
+overrides = []

@@ -3,7 +3,7 @@
 //! Boundary: lives in cli; core stays free of network/IO/output.
 //! Philosophy: thin wrapper. The check shells out to curl with a short
 //! timeout, never fails the parent command, and emits one info line to
-//! stderr. The subcommand downloads install.sh|ps1 to a tempfile and
+//! stderr. The subcommand downloads manage.sh|ps1 to a tempfile and
 //! execs it with the canonical `update` verb — no decompression,
 //! no checksum verification, no rollback. The escape hatch on any
 //! breakage is `sidecar reset` + reinstall per the latest README.
@@ -42,7 +42,7 @@ pub fn run_update(build_channel: &str) -> Result<(), String> {
     let channel = effective_channel(build_channel);
     if channel == "dev" || channel.is_empty() {
         return Err(
-            "update is unavailable on dev builds; install a release first via install.sh|ps1"
+            "update is unavailable on dev builds; install a release first via manage.sh|ps1"
                 .to_string(),
         );
     }
@@ -53,12 +53,12 @@ pub fn run_update(build_channel: &str) -> Result<(), String> {
 
     let (script_name, runner, runner_prefix): (&str, &str, &[&str]) = if cfg!(windows) {
         (
-            "install.ps1",
+            "manage.ps1",
             "powershell",
             &["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"],
         )
     } else {
-        ("install.sh", "sh", &[])
+        ("manage.sh", "sh", &[])
     };
     let url = format!(
         "{}/{}/latest/{}",
@@ -83,7 +83,7 @@ pub fn run_update(build_channel: &str) -> Result<(), String> {
         .map_err(|err| format!("failed to invoke curl: {err}"))?;
     if !dl.success() {
         let _ = fs::remove_dir_all(&tmpdir);
-        return Err(format!("failed to download installer from {url}"));
+        return Err(format!("failed to download manager from {url}"));
     }
 
     let mut cmd = Command::new(runner);
@@ -92,10 +92,10 @@ pub fn run_update(build_channel: &str) -> Result<(), String> {
     cmd.args(["update", "--channel", &channel, "--public-url", &public_url]);
     let result = cmd.status();
     let _ = fs::remove_dir_all(&tmpdir);
-    let status = result.map_err(|err| format!("failed to invoke installer: {err}"))?;
+    let status = result.map_err(|err| format!("failed to invoke manager: {err}"))?;
     if !status.success() {
         return Err(format!(
-            "installer exited with status {}",
+            "manager exited with status {}",
             status
                 .code()
                 .map_or_else(|| "<signal>".to_string(), |c| c.to_string())
@@ -277,68 +277,20 @@ fn parse_version(value: &str) -> Option<VersionKey> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[doc(hidden)]
+pub mod __test {
+    use super::{is_newer, parse_ttl, should_check};
+    use std::time::Duration;
 
-    #[test]
-    fn beta_n_ordering() {
-        assert!(is_newer("v0.1.0-beta.2", "v0.1.0-beta.1"));
-        assert!(!is_newer("v0.1.0-beta.1", "v0.1.0-beta.2"));
+    pub fn newer(remote: &str, local: &str) -> bool {
+        is_newer(remote, local)
     }
 
-    #[test]
-    fn stable_beats_same_base_beta() {
-        assert!(is_newer("v0.1.0", "v0.1.0-beta.5"));
-        assert!(!is_newer("v0.1.0-beta.5", "v0.1.0"));
+    pub fn ttl(raw: &str) -> Option<Duration> {
+        parse_ttl(raw)
     }
 
-    #[test]
-    fn equal_is_not_newer() {
-        assert!(!is_newer("v0.1.0-beta.1", "v0.1.0-beta.1"));
-        assert!(!is_newer("v0.1.0", "v0.1.0"));
-    }
-
-    #[test]
-    fn higher_minor_wins() {
-        assert!(is_newer("v0.2.0-beta.1", "v0.1.5"));
-    }
-
-    #[test]
-    fn parse_ttl_handles_units() {
-        assert_eq!(parse_ttl("0"), Some(Duration::from_secs(0)));
-        assert_eq!(parse_ttl("90"), Some(Duration::from_secs(90)));
-        assert_eq!(parse_ttl("30s"), Some(Duration::from_secs(30)));
-        assert_eq!(parse_ttl("5m"), Some(Duration::from_secs(300)));
-        assert_eq!(parse_ttl("2h"), Some(Duration::from_secs(7200)));
-        assert_eq!(parse_ttl("1d"), Some(Duration::from_secs(86400)));
-        assert_eq!(parse_ttl(""), None);
-        assert_eq!(parse_ttl("garbage"), None);
-    }
-
-    #[test]
-    fn malformed_versions_do_not_emit() {
-        assert!(!is_newer("garbage", "v0.1.0"));
-        assert!(!is_newer("v0.1.0", "garbage"));
-    }
-
-    #[test]
-    fn dev_channel_skips_check() {
-        assert!(!should_check("dev"));
-        assert!(!should_check(""));
-    }
-
-    #[test]
-    fn no_check_env_disables() {
-        let key = "SIDECAR_NO_UPDATE_CHECK";
-        let prev = env::var(key).ok();
-        env::set_var(key, "1");
-        assert!(!should_check("beta"));
-        env::set_var(key, "0");
-        assert!(should_check("beta"));
-        match prev {
-            Some(value) => env::set_var(key, value),
-            None => env::remove_var(key),
-        }
+    pub fn check_enabled(channel: &str) -> bool {
+        should_check(channel)
     }
 }
