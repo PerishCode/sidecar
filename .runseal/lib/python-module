@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -eu
+
+name=${RUNSEAL_WRAPPER_NAME:?RUNSEAL_WRAPPER_NAME is not set}
+module=$(printf '%s' "$name" | tr '-' '_')
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "missing dependency: uv" >&2
+  exit 1
+fi
+
+PYTHONPATH="$root/scripts${PYTHONPATH+:$PYTHONPATH}"
+export PYTHONPATH
+exec uv run --project "$root/scripts" python -m "cli.$module" "$@"

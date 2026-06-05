@@ -9,5 +9,6 @@ exclude = [
   "**/target/**",
   "dist/**",
   ".local/**",
+  "scripts/.venv/**",
 ]
 overrides = []

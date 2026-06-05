@@ -6,7 +6,7 @@ COMMAND=${1:-install}
 
 CHANNEL=${SIDECAR_CHANNEL:-stable}
 VERSION=${SIDECAR_VERSION:-}
-PUBLIC_URL=${SIDECAR_RELEASES_PUBLIC_URL:-}
+PUBLIC_URL=${SIDECAR_RELEASES_PUBLIC_URL:-https://releases.sidecar.perish.uk}
 INSTALL_ROOT=${SIDECAR_INSTALL_ROOT:-"$HOME/.local/share/sidecar"}
 LOCAL_BIN_DIR=${SIDECAR_LOCAL_BIN_DIR:-"$HOME/.local/bin"}
 
@@ -67,7 +67,7 @@ Usage:
   manage.sh uninstall [--version vX.Y.Z]
 
 Environment:
-  SIDECAR_RELEASES_PUBLIC_URL
+  SIDECAR_RELEASES_PUBLIC_URL  # default: https://releases.sidecar.perish.uk
   SIDECAR_CHANNEL
   SIDECAR_VERSION
   SIDECAR_INSTALL_ROOT

@@ -21,14 +21,13 @@ This repository keeps that machinery small and product-neutral. It is not trying
 Release installation is R2-backed.
 
 ```sh
-curl -fsSL "$SIDECAR_RELEASES_PUBLIC_URL/stable/latest/manage.sh" \
-  | sh -s -- install --channel stable --public-url "$SIDECAR_RELEASES_PUBLIC_URL"
+curl -fsSL https://sidecar.perish.uk/manage.sh \
+  | sh -s -- install --channel stable
 ```
 
-Beta releases use the same manager with `--channel beta`. The planned
-`sidecar.perish.uk` release mapping is intentionally not automated in this
-checkout yet; keep using `SIDECAR_RELEASES_PUBLIC_URL` until that mapping is
-provisioned.
+Beta releases use the same manager with `--channel beta`. The manager defaults
+to `https://releases.sidecar.perish.uk` as its release asset root. The
+`sidecar.perish.uk` mapping is maintained through `runseal :cloudflare`.
 
 ## Local Smoke
 

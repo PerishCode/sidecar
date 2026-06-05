@@ -5,7 +5,7 @@ $rest = if ($args.Length -gt 1) { $args[1..($args.Length - 1)] } else { @() }
 
 $channel = if ($env:SIDECAR_CHANNEL) { $env:SIDECAR_CHANNEL } else { 'stable' }
 $version = if ($env:SIDECAR_VERSION) { $env:SIDECAR_VERSION } else { '' }
-$publicUrl = if ($env:SIDECAR_RELEASES_PUBLIC_URL) { $env:SIDECAR_RELEASES_PUBLIC_URL } else { '' }
+$publicUrl = if ($env:SIDECAR_RELEASES_PUBLIC_URL) { $env:SIDECAR_RELEASES_PUBLIC_URL } else { 'https://releases.sidecar.perish.uk' }
 $installRoot = if ($env:SIDECAR_INSTALL_ROOT) { $env:SIDECAR_INSTALL_ROOT } else { Join-Path $HOME '.local/share/sidecar' }
 $localBinDir = if ($env:SIDECAR_LOCAL_BIN_DIR) { $env:SIDECAR_LOCAL_BIN_DIR } else { Join-Path $HOME '.local/bin' }
 

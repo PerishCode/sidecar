@@ -37,6 +37,7 @@ REQUIRED_PATHS = (
     "manage.sh",
     "manage.ps1",
     "runseal.toml",
+    ".runseal/lib/python-module",
     ".runseal/wrappers/cloudflare",
     "examples/minimal.toml",
     ".github/workflows/guard.yml",
@@ -57,6 +58,11 @@ REQUIRED_PATHS = (
     ".github/scripts/release/smoke/smoke.sh",
     ".github/scripts/release/smoke/smoke.ps1",
     "scripts/init.py",
+    "scripts/pyproject.toml",
+    "scripts/cli/cloudflare.py",
+    "scripts/lib/cloudflare.py",
+    "scripts/lib/utils/cli.py",
+    "scripts/lib/utils/paths.py",
 )
 
 PRE_COMMIT_HOOK = f"""#!/usr/bin/env sh
@@ -82,6 +88,7 @@ runseal @profile >/dev/null
 
 echo "==> shell syntax"
 sh -n manage.sh
+sh -n .runseal/lib/python-module
 sh -n .runseal/wrappers/cloudflare
 sh -n .github/scripts/release/assets/package.sh
 sh -n .github/scripts/release/assets/checksums.sh
@@ -113,6 +120,10 @@ trap - EXIT INT TERM
 
 echo "==> Python syntax"
 python3 -m py_compile scripts/init.py
+python3 -m py_compile scripts/cli/cloudflare.py
+python3 -m py_compile scripts/lib/cloudflare.py
+python3 -m py_compile scripts/lib/utils/cli.py
+python3 -m py_compile scripts/lib/utils/paths.py
 python3 -m py_compile .github/scripts/release/metadata/stable.py
 python3 -m py_compile .github/scripts/release/metadata/beta.py
 

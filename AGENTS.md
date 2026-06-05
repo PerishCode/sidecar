@@ -79,13 +79,13 @@ There is no `--keep-data` or confirm prompt by design — predictability and ide
 
 ## Installer Verbs
 
-Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There is no `upgrade` alias. The CLI's `sidecar update` subcommand downloads the canonical manager for the current channel and execs it with the `update` verb.
+Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There is no `upgrade` alias. They default to `https://releases.sidecar.perish.uk` as the public release asset root, and `SIDECAR_RELEASES_PUBLIC_URL` / `--public-url` override it. The CLI's `sidecar update` subcommand downloads the canonical manager for the current channel and execs it with the `update` verb.
 
 ## Repo-local Support
 
 `runseal.toml` and `.runseal/wrappers/` are the repo-local operator entrypoints for support tasks that do not belong in the installable `sidecar` product binary. Local development requires `flavor v0.3.3+`, `runseal`, and `uv`. Current support command:
 
-- `runseal :cloudflare` — placeholder for the future `sidecar.perish.uk` mapping workflow. Do not implement or run Cloudflare changes until the token and mapping details are provided.
+- `runseal :cloudflare` — repo-local Cloudflare support for checking credentials and ensuring exact-path `sidecar.perish.uk/manage.sh|ps1` redirects to the release bucket. Use `manage-ensure-redirect --dry-run` before applying changes.
 
 ## Common Commands
 
