@@ -40,7 +40,7 @@ jobs:
         run: cargo run --locked -p cli -- doctor --config examples/minimal.toml
 
       - name: Install flavor
-        run: cargo install --git https://github.com/PerishCode/flavor --tag v0.3.3 --locked --package flavor-cli
+        run: curl -fsSL https://flavor.perish.uk/manage.sh | sh -s -- install
 
       - name: Flavor self-check
         run: flavor check --root . --config flavor.toml
