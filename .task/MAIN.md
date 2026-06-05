@@ -2,7 +2,7 @@
 
 - **Branch:** planning/tcp-broker-runtime
 - **Status:** Active
-- **Last-Sync:** 2026-06-05T15:01:13Z (on Perish)
+- **Last-Sync:** 2026-06-05T15:03:04Z (on Perish)
 
 ## Phase Stack
 - 1.2 - Align operator and release surface with runseal/flavor/manage
@@ -15,6 +15,7 @@
 - [2026-06-04T14:59:37Z] Fixed cold-start cleanup polish: Python bytecode/cache paths are ignored and init hook installation was re-verified.
 - [2026-06-05T14:53:57Z] Switched workflow flavor installation from Git tag install to `https://flavor.perish.uk/manage.sh`.
 - [2026-06-05T15:01:13Z] Implemented and applied `runseal :cloudflare` mapping for `sidecar.perish.uk/manage.sh|ps1`.
+- [2026-06-05T15:03:04Z] Corrected `sidecar.perish.uk` redirects to target `releases.sidecar.perish.uk/stable/latest/manage.*`.
 
 ## Global References
 - **Docs:** README.md, AGENTS.md

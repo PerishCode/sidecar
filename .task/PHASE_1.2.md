@@ -20,11 +20,12 @@ Migrate `sidecar` onto the same repository and release operation shape as recent
 - [2026-06-04T14:59:37Z] Added `.gitignore` coverage for `__pycache__/` and `*.py[cod]`; reran `python3 scripts/init.py` and confirmed `.git/hooks/pre-commit` / `commit-msg` are installed and executable.
 - [2026-06-05T14:53:57Z] Aligned GitHub guard/release flavor install path with the public manager at `https://flavor.perish.uk/manage.sh`; `sidecar.perish.uk` still waits on Cloudflare token/mapping details.
 - [2026-06-05T15:01:13Z] Added repo-local Cloudflare support scripts, verified the provided token without printing secret values, created proxied CNAME `sidecar.perish.uk -> releases.sidecar.perish.uk`, and created exact-path redirect rules for `/manage.sh` and `/manage.ps1`.
+- [2026-06-05T15:03:04Z] Verified redirects return 302 to `https://releases.sidecar.perish.uk/stable/latest/manage.sh|ps1`; downstream 404 is expected until a release publishes those assets.
 
 ## Technical Notes
 - **Files Touched:** `.task/MAIN.md`, `.task/archive/PHASE_1.1.r1.md`, `.task/PHASE_1.2.md`, `flavor.toml`, `runseal.toml`, `.runseal/wrappers/cloudflare`, `manage.sh`, `manage.ps1`, `scripts/init.py`, README/AGENTS, release workflows/scripts, CLI update/output/commands modules, Rust integration tests.
 - **New Dependencies:** `runseal`, `uv`, and `flavor v0.3.3+` become local development prerequisites.
-- **Blockers:** None for repository migration. `sidecar.perish.uk` DNS/rules exist in Cloudflare; local/public resolver visibility may lag during propagation.
+- **Blockers:** None for repository migration. `sidecar.perish.uk` DNS/rules exist in Cloudflare; release bucket assets for `stable/latest/manage.*` will exist after a release with this PR's publish script.
 
 ---
 *This phase will be popped/archived upon meeting exit criteria.*

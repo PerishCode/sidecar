@@ -20,7 +20,7 @@ DEFAULT_ZONE_NAME = "perish.uk"
 DEFAULT_MANAGE_HOST = "sidecar.perish.uk"
 DEFAULT_MANAGE_ORIGIN_HOST = "releases.sidecar.perish.uk"
 DEFAULT_MANAGE_DNS_TARGET = "releases.sidecar.perish.uk"
-DEFAULT_MANAGE_REDIRECT_PREFIX = ""
+DEFAULT_MANAGE_REDIRECT_PREFIX = "stable/latest"
 MANAGE_REDIRECT_STATUS_CODE = 302
 
 
