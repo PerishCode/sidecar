@@ -101,6 +101,7 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 - `crates/core/`: `Manifest` config, diagnostics, plan, socket parser, stamp protocol, process discovery, inspect client.
 - `crates/cli/`: CLI parsing, lifecycle execution (`start`/`stop`/`restart`/`status`/`list`/`reset`), `inspect <sidecar> <event> [payload]`, output formatting, exit behavior.
 - `manage.sh` and `manage.ps1`: public install/update/uninstall manager entrypoints uploaded as release assets.
+- `docs/`: durable design notes for planned architecture changes, including the TCP broker runtime direction.
 - `scripts/init.py`: idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
 - `.github/scripts/`: workflow-only release helpers.
 
