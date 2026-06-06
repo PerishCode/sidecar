@@ -132,19 +132,19 @@ separate, and no broker endpoint state exists to clean up.
 runtime endpoint by live listener probing plus handshake, and surface runtime
 health as live data.
 
-## First Slice
+## Implemented First Slice
 
-Recommended first implementation PR:
+The first runtime slice implements:
 
-1. Add a broker flag codec separate from the target stamp codec.
-2. Add TCP listener discovery with Linux, macOS, and Windows implementations.
-3. Add a hidden internal `sidecar runtime serve` command.
-4. Implement the minimal broker TCP server and handshake.
-5. Make `start` ensure the broker exists and inject `SIDECAR_RUNTIME_ENDPOINT`.
-6. Make `status` and `list` show the broker runtime endpoint when discovered.
-7. Make `stop` and `reset` terminate broker processes.
-8. Keep existing target pid/log state.
-9. Leave inspect forwarding on the current target-local bridge.
+1. A broker flag codec separate from the target stamp codec.
+2. TCP listener discovery with Linux, macOS, and Windows implementations.
+3. A hidden internal `sidecar runtime serve <project> <namespace>` command.
+4. A minimal broker TCP server and hello handshake.
+5. `start` broker ensure plus `SIDECAR_RUNTIME_ENDPOINT` injection.
+6. `status` and `list` runtime pids/endpoint output.
+7. `stop` and `reset` broker termination.
+8. Existing target pid/log state remains in place.
+9. Inspect forwarding remains on the current target-local bridge.
 
 ## Deferrals
 
@@ -157,7 +157,7 @@ Recommended first implementation PR:
 
 ## Compatibility
 
-This runtime architecture change should bump the CLI/core minor version, likely
-to `0.4.0`. Even if the first slice keeps old inspect behavior, lifecycle and
-environment behavior changes because the runtime endpoint is discovered by argv
-identity plus live TCP probing instead of persisted files.
+This runtime architecture change bumps the CLI/core minor version to `0.4.0`.
+Even though the first slice keeps old inspect behavior, lifecycle, environment,
+and status/list output behavior changed because the runtime endpoint is
+discovered by argv identity plus live TCP probing instead of persisted files.

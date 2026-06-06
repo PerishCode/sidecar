@@ -7,7 +7,8 @@ mod runtime;
 use crate::cli::OutputFormat;
 use render::{print_inspect_response, print_list, print_status};
 use runtime::{
-    load_target_state, record_target_state, remove_target_state, running_pids_for_target,
+    broker_status, detach_process_group, ensure_broker, load_target_state, maybe_stop_broker,
+    record_target_state, remove_target_state, running_pids_for_target, stop_broker, wait_for_exit,
     wait_ready_from_log, ReadySummary, RuntimeChain,
 };
 use serde_json::Value;
@@ -21,6 +22,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const SIDECAR_INSPECT_SOCKET_ENV: &str = "SIDECAR_INSPECT_SOCKET";
+const SIDECAR_RUNTIME_ENDPOINT_ENV: &str = "SIDECAR_RUNTIME_ENDPOINT";
 const STIM_SIDECAR_APP_ENV: &str = "STIM_SIDECAR_APP";
 const STIM_SIDECAR_NAMESPACE_ENV: &str = "STIM_SIDECAR_NAMESPACE";
 const STIM_SIDECAR_MODE_ENV: &str = "STIM_SIDECAR_MODE";
@@ -33,6 +35,7 @@ pub(crate) fn start(
 ) -> Result<(), String> {
     let plan = state.execution_plan();
     let targets = select_targets(&plan, sidecar)?;
+    let runtime_endpoint = ensure_broker(&plan)?;
     let mut chain = RuntimeChain::from_state(paths, &plan)?;
     for target in targets {
         if let Some(running) = running_pids_for_target(paths, target)?.first() {
@@ -41,7 +44,11 @@ pub(crate) fn start(
                 target.name, running
             ));
         }
-        let extra_env = chain.resolve_inherits(target)?;
+        let mut extra_env = chain.resolve_inherits(target)?;
+        extra_env.push((
+            SIDECAR_RUNTIME_ENDPOINT_ENV.to_string(),
+            runtime_endpoint.clone(),
+        ));
         let (pid, ready, log_path) =
             spawn_detached(state.config_path.parent(), paths, target, &extra_env)?;
         record_target_state(paths, target, pid, ready.as_ref(), &log_path)?;
@@ -74,6 +81,7 @@ pub(crate) fn stop(
                     target.name, pid
                 )
             })?;
+            wait_for_exit(*pid)?;
             println!("stopped {} pid={}", target.name, pid);
             stopped_total += 1;
         }
@@ -82,6 +90,7 @@ pub(crate) fn stop(
     if stopped_total == 0 && sidecar.is_none() {
         println!("no sidecars were running");
     }
+    maybe_stop_broker(&plan, paths, sidecar)?;
     Ok(())
 }
 
@@ -105,7 +114,8 @@ pub(crate) fn status(
         let pids = running_pids_for_target(paths, target)?;
         rows.push((target.name.clone(), pids));
     }
-    print_status(&plan.namespace, &rows, format)
+    let broker = broker_status(&plan)?;
+    print_status(&plan.namespace, &rows, &broker, format)
 }
 
 pub(crate) fn list(
@@ -116,7 +126,14 @@ pub(crate) fn list(
     let plan = state.execution_plan();
     let hits = discover_by_namespace(&plan.namespace)
         .map_err(|err| format!("discovery failed for namespace `{}`: {err}", plan.namespace))?;
-    print_list(&plan.namespace, &hits, &load_target_state(paths)?, format)
+    let broker = broker_status(&plan)?;
+    print_list(
+        &plan.namespace,
+        &hits,
+        &broker,
+        &load_target_state(paths)?,
+        format,
+    )
 }
 
 pub(crate) fn reset(state: &DevState, paths: &DataPaths, all: bool) -> Result<(), String> {
@@ -124,6 +141,7 @@ pub(crate) fn reset(state: &DevState, paths: &DataPaths, all: bool) -> Result<()
     for target in &plan.targets {
         for pid in running_pids_for_target(paths, target)? {
             signal_terminate(pid).map_err(|err| format!("failed to terminate pid {pid}: {err}"))?;
+            wait_for_exit(pid)?;
             println!("terminated pid={pid} target={}", target.name);
         }
     }
@@ -135,9 +153,11 @@ pub(crate) fn reset(state: &DevState, paths: &DataPaths, all: bool) -> Result<()
         for hit in &hits {
             signal_terminate(hit.pid)
                 .map_err(|err| format!("failed to terminate pid {}: {err}", hit.pid))?;
+            wait_for_exit(hit.pid)?;
             println!("terminated pid={} cmd={}", hit.pid, hit.command);
         }
     }
+    stop_broker(&plan)?;
     remove_dir_if_exists(&paths.project, "project data")?;
     if all {
         remove_dir_if_exists(&paths.state, "global state")?;
@@ -285,19 +305,6 @@ fn resolve_cwd(config_dir: Option<&Path>, cwd: &str) -> std::path::PathBuf {
     match config_dir {
         Some(dir) => dir.join(path),
         None => path.to_path_buf(),
-    }
-}
-
-fn detach_process_group(command: &mut Command) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = command;
     }
 }
 

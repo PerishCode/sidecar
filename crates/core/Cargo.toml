@@ -1,6 +1,6 @@
 [package]
 name = "core"
-version = "0.3.0"
+version = "0.4.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -13,3 +13,10 @@ path = "src/lib.rs"
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_Networking_WinSock",
+] }

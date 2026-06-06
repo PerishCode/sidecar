@@ -2,12 +2,19 @@
 //!
 //! Unix uses `ps -axo pid=,command=`. Windows is not yet implemented.
 
+use crate::runtime::broker::read_broker_identity;
 use crate::stamp::read_stamp;
 #[cfg(unix)]
 use std::process::{Command, Stdio};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StampedProcess {
+    pub pid: u32,
+    pub command: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BrokerProcess {
     pub pid: u32,
     pub command: String,
 }
@@ -27,6 +34,12 @@ pub fn discover_by_namespace(namespace: &str) -> Result<Vec<StampedProcess>, Str
     }))
 }
 
+pub fn discover_brokers(project: &str, namespace: &str) -> Result<Vec<BrokerProcess>, String> {
+    Ok(filter_brokers(ps_command_lines()?, |args| {
+        match_broker(args, project, namespace)
+    }))
+}
+
 fn match_app(args: &[String], app: &str) -> bool {
     read_stamp(args)
         .map(|stamp| stamp.app == app)
@@ -36,6 +49,12 @@ fn match_app(args: &[String], app: &str) -> bool {
 fn match_namespace(args: &[String], namespace: &str) -> bool {
     read_stamp(args)
         .map(|stamp| stamp.namespace == namespace)
+        .unwrap_or(false)
+}
+
+fn match_broker(args: &[String], project: &str, namespace: &str) -> bool {
+    read_broker_identity(args)
+        .map(|identity| identity.project == project && identity.namespace == namespace)
         .unwrap_or(false)
 }
 
@@ -55,6 +74,22 @@ where
         .collect()
 }
 
+fn filter_brokers<F>(rows: Vec<(u32, String)>, predicate: F) -> Vec<BrokerProcess>
+where
+    F: Fn(&[String]) -> bool,
+{
+    rows.into_iter()
+        .filter_map(|(pid, command)| {
+            let args: Vec<String> = command.split_whitespace().map(String::from).collect();
+            if predicate(&args) {
+                Some(BrokerProcess { pid, command })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 #[doc(hidden)]
 pub fn filter_for_test(
     rows: Vec<(u32, String)>,
@@ -64,6 +99,15 @@ pub fn filter_for_test(
     filter_stamped(rows, |args| {
         match_app(args, app) && match_namespace(args, namespace)
     })
+}
+
+#[doc(hidden)]
+pub fn filter_brokers_for_test(
+    rows: Vec<(u32, String)>,
+    project: &str,
+    namespace: &str,
+) -> Vec<BrokerProcess> {
+    filter_brokers(rows, |args| match_broker(args, project, namespace))
 }
 
 #[cfg(unix)]
@@ -104,7 +148,7 @@ pub fn parse_ps_output(text: &str) -> Vec<(u32, String)> {
 pub fn signal_terminate(pid: u32) -> Result<(), String> {
     let process_group = format!("-{pid}");
     let group_status = Command::new("kill")
-        .args(["-TERM", &process_group])
+        .args(["-TERM", "--", &process_group])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -114,7 +158,9 @@ pub fn signal_terminate(pid: u32) -> Result<(), String> {
     }
 
     let status = Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
+        .args(["-TERM", "--", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map_err(|err| format!("kill failed: {err}"))?;
     if status.success() {

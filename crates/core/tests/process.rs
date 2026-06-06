@@ -1,4 +1,4 @@
-use sidecar_core::process::{filter_for_test, parse_ps_output};
+use sidecar_core::process::{filter_brokers_for_test, filter_for_test, parse_ps_output};
 
 #[test]
 fn parse_ps() {
@@ -30,6 +30,27 @@ fn filter_stamp() {
         (12, "noise --no-stamp".into()),
     ];
     let hits = filter_for_test(rows, "controller", "default");
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].pid, 10);
+}
+
+#[test]
+fn filter_broker() {
+    let rows = vec![
+        (
+            10,
+            "sidecar runtime serve --sidecar-broker=p=local;n=default;s=tool%3Asidecar".into(),
+        ),
+        (
+            11,
+            "sidecar runtime serve --sidecar-broker=p=local;n=other;s=tool%3Asidecar".into(),
+        ),
+        (
+            12,
+            "controller --sidecar-stamp=a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
+        ),
+    ];
+    let hits = filter_brokers_for_test(rows, "local", "default");
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].pid, 10);
 }

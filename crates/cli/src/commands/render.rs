@@ -2,19 +2,31 @@ use crate::cli::OutputFormat;
 use serde_json::{Map, Value};
 use sidecar_core::{InspectResponse, StampedProcess};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct BrokerRuntimeStatus {
+    pub(super) pids: Vec<u32>,
+    pub(super) endpoint: Option<String>,
+}
+
 pub(super) fn print_status(
     namespace: &str,
     rows: &[(String, Vec<u32>)],
+    broker: &BrokerRuntimeStatus,
     format: OutputFormat,
 ) -> Result<(), String> {
     match format {
-        OutputFormat::Text => print_status_text(namespace, rows),
-        OutputFormat::Json => print_status_json(namespace, rows),
+        OutputFormat::Text => print_status_text(namespace, rows, broker),
+        OutputFormat::Json => print_status_json(namespace, rows, broker),
     }
 }
 
-fn print_status_text(namespace: &str, rows: &[(String, Vec<u32>)]) -> Result<(), String> {
+fn print_status_text(
+    namespace: &str,
+    rows: &[(String, Vec<u32>)],
+    broker: &BrokerRuntimeStatus,
+) -> Result<(), String> {
     println!("namespace: {namespace}");
+    print_broker_text(broker);
     for (name, pids) in rows {
         if let Some(first) = pids.first() {
             println!("- {name}: running (pid {})", first);
@@ -28,9 +40,14 @@ fn print_status_text(namespace: &str, rows: &[(String, Vec<u32>)]) -> Result<(),
     Ok(())
 }
 
-fn print_status_json(namespace: &str, rows: &[(String, Vec<u32>)]) -> Result<(), String> {
+fn print_status_json(
+    namespace: &str,
+    rows: &[(String, Vec<u32>)],
+    broker: &BrokerRuntimeStatus,
+) -> Result<(), String> {
     let value = serde_json::json!({
         "namespace": namespace,
+        "runtime": broker_json(broker),
         "targets": rows.iter().map(|(name, pids)| serde_json::json!({
             "name": name,
             "running": !pids.is_empty(),
@@ -47,21 +64,24 @@ fn print_status_json(namespace: &str, rows: &[(String, Vec<u32>)]) -> Result<(),
 pub(super) fn print_list(
     namespace: &str,
     hits: &[StampedProcess],
+    broker: &BrokerRuntimeStatus,
     state: &Map<String, Value>,
     format: OutputFormat,
 ) -> Result<(), String> {
     match format {
-        OutputFormat::Text => print_list_text(namespace, hits, state),
-        OutputFormat::Json => print_list_json(namespace, hits, state),
+        OutputFormat::Text => print_list_text(namespace, hits, broker, state),
+        OutputFormat::Json => print_list_json(namespace, hits, broker, state),
     }
 }
 
 fn print_list_text(
     namespace: &str,
     hits: &[StampedProcess],
+    broker: &BrokerRuntimeStatus,
     state: &Map<String, Value>,
 ) -> Result<(), String> {
     println!("namespace: {namespace}");
+    print_broker_text(broker);
     if hits.is_empty() {
         println!("no stamped processes");
     }
@@ -79,10 +99,12 @@ fn print_list_text(
 fn print_list_json(
     namespace: &str,
     hits: &[StampedProcess],
+    broker: &BrokerRuntimeStatus,
     state: &Map<String, Value>,
 ) -> Result<(), String> {
     let value = serde_json::json!({
         "namespace": namespace,
+        "runtime": broker_json(broker),
         "processes": hits.iter().map(|hit| serde_json::json!({
             "pid": hit.pid,
             "command": hit.command,
@@ -94,6 +116,22 @@ fn print_list_json(
         serde_json::to_string_pretty(&value).map_err(|err| err.to_string())?
     );
     Ok(())
+}
+
+fn print_broker_text(broker: &BrokerRuntimeStatus) {
+    match (&broker.endpoint, broker.pids.first()) {
+        (Some(endpoint), Some(pid)) => println!("runtime: running (pid {pid}) {endpoint}"),
+        (None, Some(pid)) => println!("runtime: starting or stale (pid {pid})"),
+        _ => println!("runtime: stopped"),
+    }
+}
+
+fn broker_json(broker: &BrokerRuntimeStatus) -> Value {
+    serde_json::json!({
+        "running": !broker.pids.is_empty() && broker.endpoint.is_some(),
+        "pids": broker.pids,
+        "endpoint": broker.endpoint,
+    })
 }
 
 pub(super) fn print_inspect_response(

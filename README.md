@@ -8,6 +8,7 @@ The core mechanisms are:
 
 - **Manifest-closed lifecycle**: command, cwd, args, env, readiness, inspect socket, status identity, stop behavior, and reset boundary are declared up front.
 - **Packed stamp identity**: spawned processes receive one compact `--sidecar-stamp=...` arg so they can be discovered and managed later.
+- **Broker runtime endpoint**: each project/namespace gets one local TCP broker, discovered from process argv plus live listener probing, and injected into targets as `SIDECAR_RUNTIME_ENDPOINT`.
 - **Inspect bridge**: a single SidecarRuntime event frame over a Unix socket, with TCP reserved for fallback probes.
 
 ## Why
@@ -72,6 +73,29 @@ Top-level shape:
 - per target: `name`, `command`, `args`, `cwd`, `mode`, `env`, `stamp_via_env`, `inspect_socket`, `endpoint_env`, `inherits_env`, `ready`
 
 `inspect_socket` supports `{project}`, `{namespace}`, and `{name}` templates.
+
+## Broker Runtime
+
+`sidecar start` ensures one local broker for the resolved project and namespace
+before launching targets. The broker is identified by argv:
+
+```text
+--sidecar-broker=p=<project.name>;n=<project.namespace>;s=tool%3Asidecar
+```
+
+The broker endpoint is not written to state files and is not encoded into argv.
+`sidecar` discovers it by finding the broker process, inspecting TCP listeners
+owned by that pid, and confirming the listener with a hello handshake. Started
+targets receive the live endpoint as:
+
+```text
+SIDECAR_RUNTIME_ENDPOINT=tcp://127.0.0.1:<port>
+```
+
+`status` and `list` include a `runtime` object in JSON output and a `runtime:`
+line in text output. Full `stop` and `reset` terminate broker processes; `stop
+<target>` terminates the broker only when no other target in the namespace is
+still running.
 
 ## Stamp Args Protocol
 
