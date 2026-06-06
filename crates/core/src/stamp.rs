@@ -89,7 +89,7 @@ fn required(value: Option<String>, key: &str) -> Result<String, String> {
     value.ok_or_else(|| format!("stamp missing {key:?}"))
 }
 
-fn encode_value(value: &str) -> String {
+pub(crate) fn encode_value(value: &str) -> String {
     let mut encoded = String::new();
     for byte in value.bytes() {
         if is_unreserved(byte) {
@@ -103,7 +103,7 @@ fn encode_value(value: &str) -> String {
     encoded
 }
 
-fn decode_value(value: &str) -> Result<String, String> {
+pub(crate) fn decode_value(value: &str) -> Result<String, String> {
     let bytes = value.as_bytes();
     let mut decoded = Vec::new();
     let mut index = 0;

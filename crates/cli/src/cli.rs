@@ -1,6 +1,6 @@
-use crate::commands;
 use crate::output::{print_diagnostics, print_plan};
 use crate::update;
+use crate::{broker_runtime, commands};
 use sidecar_core::{resolve_data_paths, DataPaths, DevState, Severity};
 use std::{path::Path, time::Duration};
 
@@ -102,7 +102,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     let cmd = parsed.command[0].as_str();
     if !matches!(
         cmd,
-        "help" | "--help" | "-h" | "version" | "--version" | "-V" | "update"
+        "help" | "--help" | "-h" | "version" | "--version" | "-V" | "update" | "runtime"
     ) {
         update::maybe_emit_check_notice(version(), channel());
     }
@@ -119,6 +119,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             require_no_extra_args(&parsed, 1, "update")?;
             update::run_update(channel())
         }
+        "runtime" => run_runtime_command(&parsed),
         "doctor" => {
             require_no_extra_args(&parsed, 1, "doctor")?;
             let state = load_state(&parsed)?;
@@ -172,6 +173,20 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             "unknown command: {}; run `sidecar help`",
             parsed.command.join(" ")
         )),
+    }
+}
+
+fn run_runtime_command(parsed: &ParsedArgs) -> Result<(), String> {
+    match parsed.command.as_slice() {
+        [_, verb, project, namespace, ..] if verb == "serve" => {
+            broker_runtime::serve(project, namespace)
+        }
+        [_, verb, ..] if verb == "serve" => {
+            Err("runtime serve requires <project> <namespace>".to_string())
+        }
+        _ => Err(
+            "unknown runtime command; expected `runtime serve <project> <namespace>`".to_string(),
+        ),
     }
 }
 
@@ -323,7 +338,8 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
             }
             value
                 if value.starts_with('-')
-                    && !matches!(value, "-h" | "--help" | "-V" | "--version") =>
+                    && !matches!(value, "-h" | "--help" | "-V" | "--version")
+                    && !value.starts_with("--sidecar-broker") =>
             {
                 return Err(format!("unknown option: {value}"));
             }
