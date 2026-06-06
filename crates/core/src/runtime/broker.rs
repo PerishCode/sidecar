@@ -2,6 +2,9 @@
 
 use crate::stamp::{decode_value, encode_value, DEFAULT_SOURCE};
 use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::time::Duration;
 
 pub const BROKER_FLAG: &str = "--sidecar-broker";
 pub const BROKER_PROTOCOL_VERSION: u8 = 1;
@@ -86,6 +89,59 @@ pub fn validate_hello(
             Err("broker hello did not match expected protocol, project, or namespace".to_string())
         }
     }
+}
+
+pub fn discover_endpoint(
+    identity: &BrokerIdentity,
+    timeout: Duration,
+) -> Result<Option<SocketAddr>, String> {
+    let hits = crate::runtime::process::discover_brokers(&identity.project, &identity.namespace)?;
+    for hit in hits {
+        let listeners = crate::runtime::tcp::tcp_listeners_for_pid(hit.pid)?;
+        for addr in listeners {
+            if probe_endpoint(addr, identity, timeout)? {
+                return Ok(Some(addr));
+            }
+        }
+    }
+    Ok(None)
+}
+
+pub fn probe_endpoint(
+    addr: SocketAddr,
+    identity: &BrokerIdentity,
+    timeout: Duration,
+) -> Result<bool, String> {
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
+        return Ok(false);
+    };
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|err| format!("failed to set broker read timeout: {err}"))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|err| format!("failed to set broker write timeout: {err}"))?;
+    let request = serde_json::to_string(&hello_request(identity)).map_err(|err| err.to_string())?;
+    stream
+        .write_all(request.as_bytes())
+        .and_then(|_| stream.write_all(b"\n"))
+        .map_err(|err| format!("failed to write broker hello: {err}"))?;
+
+    let mut line = String::new();
+    BufReader::new(stream)
+        .read_line(&mut line)
+        .map_err(|err| format!("failed to read broker hello response: {err}"))?;
+    let Ok(response) = serde_json::from_str::<BrokerResponse>(line.trim()) else {
+        return Ok(false);
+    };
+    Ok(matches!(
+        response,
+        BrokerResponse::HelloOk {
+            protocol: BROKER_PROTOCOL_VERSION,
+            project,
+            namespace,
+        } if project == identity.project && namespace == identity.namespace
+    ))
 }
 
 pub fn read_broker_flag(args: &[String]) -> Option<String> {

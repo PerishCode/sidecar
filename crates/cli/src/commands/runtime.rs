@@ -1,9 +1,13 @@
+use super::render::BrokerRuntimeStatus;
 use serde_json::{Map, Value};
-use sidecar_core::{discover_by_app_namespace, DataPaths, ExecutionPlan, TargetPlan};
+use sidecar_core::{
+    discover_broker_endpoint, discover_brokers, discover_by_app_namespace, signal_terminate,
+    BrokerIdentity, DataPaths, ExecutionPlan, TargetPlan,
+};
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
@@ -251,12 +255,196 @@ pub(super) fn running_pids_for_target(
     Ok(pids)
 }
 
+pub(super) fn ensure_broker(plan: &ExecutionPlan) -> Result<String, String> {
+    let identity = broker_identity(plan);
+    if let Some(addr) = discover_broker_endpoint(&identity, Duration::from_millis(200))? {
+        return Ok(format!("tcp://{addr}"));
+    }
+
+    let exe =
+        std::env::current_exe().map_err(|err| format!("failed to resolve sidecar exe: {err}"))?;
+    let log_path = std::env::temp_dir().join(format!(
+        "sidecar-broker-{}-{}.log",
+        sanitize_log_part(&identity.project),
+        sanitize_log_part(&identity.namespace)
+    ));
+    let log = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&log_path)
+        .map_err(|err| format!("failed to open {}: {err}", log_path.display()))?;
+    let stderr = log
+        .try_clone()
+        .map_err(|err| format!("failed to clone {}: {err}", log_path.display()))?;
+    let mut command = Command::new(exe);
+    command
+        .args(["runtime", "serve", &identity.project, &identity.namespace])
+        .args(identity.args())
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(stderr));
+    detach_process_group(&mut command);
+    let child = command
+        .spawn()
+        .map_err(|err| format!("failed to spawn broker: {err}"))?;
+    let pid = child.id();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if let Some(addr) = discover_broker_endpoint(&identity, Duration::from_millis(200))? {
+            println!("broker runtime pid={pid} endpoint=tcp://{addr}");
+            return Ok(format!("tcp://{addr}"));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err(format!(
+        "timed out waiting for broker runtime pid={pid}; see {}",
+        log_path.display()
+    ))
+}
+
+pub(super) fn broker_status(plan: &ExecutionPlan) -> Result<BrokerRuntimeStatus, String> {
+    let identity = broker_identity(plan);
+    let brokers = discover_brokers(&identity.project, &identity.namespace)?;
+    let endpoint = discover_broker_endpoint(&identity, Duration::from_millis(200))?;
+    Ok(BrokerRuntimeStatus {
+        pids: brokers.into_iter().map(|broker| broker.pid).collect(),
+        endpoint: endpoint.map(|addr| format!("tcp://{addr}")),
+    })
+}
+
+pub(super) fn maybe_stop_broker(
+    plan: &ExecutionPlan,
+    paths: &DataPaths,
+    sidecar: Option<&str>,
+) -> Result<(), String> {
+    if sidecar.is_none() || running_target_count(plan, paths)? == 0 {
+        stop_broker(plan)?;
+    }
+    Ok(())
+}
+
+pub(super) fn stop_broker(plan: &ExecutionPlan) -> Result<(), String> {
+    let identity = broker_identity(plan);
+    let brokers = discover_brokers(&identity.project, &identity.namespace)?;
+    for broker in brokers {
+        signal_terminate(broker.pid)
+            .map_err(|err| format!("failed to terminate broker pid {}: {err}", broker.pid))?;
+        wait_for_exit(broker.pid)?;
+        println!("stopped broker pid={}", broker.pid);
+    }
+    Ok(())
+}
+
+pub(super) fn wait_for_exit(pid: u32) -> Result<(), String> {
+    if wait_until_exit(pid, Duration::from_millis(500)) {
+        return Ok(());
+    }
+    force_kill(pid)?;
+    if wait_until_exit(pid, Duration::from_secs(2)) {
+        return Ok(());
+    }
+    Err(format!("timed out waiting for pid {pid} to exit"))
+}
+
+pub(super) fn detach_process_group(command: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+    }
+}
+
+fn broker_identity(plan: &ExecutionPlan) -> BrokerIdentity {
+    BrokerIdentity::new(&plan.project, &plan.namespace)
+}
+
+fn running_target_count(plan: &ExecutionPlan, paths: &DataPaths) -> Result<usize, String> {
+    let mut count = 0;
+    for target in &plan.targets {
+        if !running_pids_for_target(paths, target)?.is_empty() {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+fn wait_until_exit(pid: u32, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if !process_exists(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !process_exists(pid)
+}
+
+fn force_kill(pid: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let process_group = format!("-{pid}");
+        let group_status = Command::new("kill")
+            .args(["-KILL", "--", &process_group])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|err| format!("kill failed: {err}"))?;
+        if group_status.success() {
+            return Ok(());
+        }
+        if !process_exists(pid) {
+            return Ok(());
+        }
+
+        let status = Command::new("kill")
+            .args(["-KILL", "--", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|err| format!("kill failed: {err}"))?;
+        if status.success() || !process_exists(pid) {
+            Ok(())
+        } else {
+            Err(format!(
+                "kill -KILL -{pid} exited with status {group_status}; kill -KILL {pid} exited with status {status}"
+            ))
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Ok(())
+    }
+}
+
+fn sanitize_log_part(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn process_exists(pid: u32) -> bool {
     #[cfg(unix)]
     {
         Command::new("kill")
             .arg("-0")
             .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .is_ok_and(|status| status.success())
     }

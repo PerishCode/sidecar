@@ -1,6 +1,7 @@
 use sidecar_core::{
-    broker_hello_request, decode_broker_identity, encode_broker_identity, read_broker_flag,
-    read_broker_identity, validate_broker_hello, BrokerIdentity, BrokerRequest, BrokerResponse,
+    broker_hello_request, decode_broker_identity, encode_broker_identity, probe_broker_endpoint,
+    read_broker_flag, read_broker_identity, validate_broker_hello, BrokerIdentity, BrokerRequest,
+    BrokerResponse,
 };
 
 #[test]
@@ -78,4 +79,35 @@ fn hello_protocol() {
         namespace: "other".into(),
     };
     assert!(validate_broker_hello(&wrong_namespace, &identity).is_err());
+}
+
+#[test]
+fn probe_endpoint() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let addr = listener.local_addr().unwrap();
+    let worker = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(stream.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        assert_eq!(
+            line.trim(),
+            r#"{"kind":"hello","protocol":1,"project":"sidecar","namespace":"default"}"#
+        );
+        stream
+            .write_all(
+                br#"{"kind":"hello_ok","protocol":1,"project":"sidecar","namespace":"default"}
+"#,
+            )
+            .unwrap();
+    });
+
+    let identity = BrokerIdentity::new("sidecar", "default");
+    assert!(probe_broker_endpoint(addr, &identity, Duration::from_secs(2)).unwrap());
+    worker.join().unwrap();
 }

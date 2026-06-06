@@ -148,7 +148,7 @@ pub fn parse_ps_output(text: &str) -> Vec<(u32, String)> {
 pub fn signal_terminate(pid: u32) -> Result<(), String> {
     let process_group = format!("-{pid}");
     let group_status = Command::new("kill")
-        .args(["-TERM", &process_group])
+        .args(["-TERM", "--", &process_group])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -158,7 +158,9 @@ pub fn signal_terminate(pid: u32) -> Result<(), String> {
     }
 
     let status = Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
+        .args(["-TERM", "--", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map_err(|err| format!("kill failed: {err}"))?;
     if status.success() {

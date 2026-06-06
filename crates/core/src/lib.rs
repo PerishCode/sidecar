@@ -20,10 +20,11 @@ pub use plan::{
     TargetKind, TargetPlan,
 };
 pub use runtime::broker::{
-    decode_identity as decode_broker_identity, encode_identity as encode_broker_identity,
-    hello_ok as broker_hello_ok, hello_request as broker_hello_request, read_broker_flag,
-    read_broker_identity, validate_hello as validate_broker_hello, BrokerIdentity, BrokerRequest,
-    BrokerResponse, BROKER_FLAG, BROKER_PROTOCOL_VERSION,
+    decode_identity as decode_broker_identity, discover_endpoint as discover_broker_endpoint,
+    encode_identity as encode_broker_identity, hello_ok as broker_hello_ok,
+    hello_request as broker_hello_request, probe_endpoint as probe_broker_endpoint,
+    read_broker_flag, read_broker_identity, validate_hello as validate_broker_hello,
+    BrokerIdentity, BrokerRequest, BrokerResponse, BROKER_FLAG, BROKER_PROTOCOL_VERSION,
 };
 pub use runtime::process;
 pub use runtime::process::{

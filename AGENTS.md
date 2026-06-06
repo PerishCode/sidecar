@@ -2,11 +2,12 @@
 
 ## Purpose
 
-`sidecar` is the standalone home for an IPC-based sidecars project manager. It owns two product-neutral abstractions:
+`sidecar` is the standalone home for an IPC-based sidecars project manager. It owns four product-neutral abstractions:
 
 1. **Manifest-closed lifecycle** — `sidecar.toml` defines command/cwd/args/env/stamps/readiness/inspect/status/stop/reset for every target.
 2. **Stamp args** — a packed `--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>` flag appended to spawned sidecars when the target accepts argv stamps; strict targets opt into explicit env stamping.
-3. **Inspect bridge** — a single-shot SidecarRuntime event frame over a Unix socket (TCP fallback) for talking to a running sidecar's inspect server.
+3. **Broker runtime** — one project/namespace-scoped loopback TCP broker discovered from `--sidecar-broker` argv identity plus live listener probing; targets receive `SIDECAR_RUNTIME_ENDPOINT`.
+4. **Inspect bridge** — a single-shot SidecarRuntime event frame over a Unix socket (TCP fallback) for talking to a running sidecar's inspect server.
 
 This repository is not a `stim.io` module. `stim.io` and other consumers install `sidecar` as a published CLI through the R2-backed `manage.sh` / `manage.ps1` entrypoints.
 
@@ -62,6 +63,7 @@ Override precedence (highest wins): `--data-home <path>` (CLI) > `SIDECAR_DATA_H
 The CLI accepts `-p <name>` / `--project <name>` (and `SIDECAR_PROJECT` env) as a Docker-Compose-style override of the manifest `[project].namespace`. It re-keys everything that's namespace-scoped in one shot:
 
 - The stamp protocol's packed `n` namespace field on every spawned sidecar.
+- The broker protocol's packed `n` namespace field on the project runtime broker.
 - `discover_by_namespace` / `discover_by_app_namespace` lookups.
 - The `<data_home>/projects/<namespace>/` subdir.
 
@@ -72,8 +74,9 @@ Precedence: CLI flag > env > manifest. The manifest value becomes a default; CLI
 `sidecar reset --config <path>` is the single escape hatch from any incompatible-change failure mode. It:
 
 1. Terminates every stamped process and every manifest-recorded target pid in the current namespace.
-2. Removes `<data_home>/projects/<namespace>/` (manifest `data_dir` honored).
-3. With `--all`: also removes `<data_home>/state/` (wipes update cache, etc.).
+2. Terminates every broker process for the current project/namespace.
+3. Removes `<data_home>/projects/<namespace>/` (manifest `data_dir` honored).
+4. With `--all`: also removes `<data_home>/state/` (wipes update cache, etc.).
 
 There is no `--keep-data` or confirm prompt by design — predictability and idempotency are reset's contract. The install root and bin link are out of scope for `reset` (they belong to `manage.sh|ps1 uninstall`). The fully-recovered state is: `sidecar reset --all` → `manage.sh|ps1 uninstall` → reinstall latest → re-author `sidecar.toml` per the latest README.
 
