@@ -1,4 +1,4 @@
-use sidecar_core::DevState;
+use sidecar_core::{DevState, Manifest};
 use std::path::PathBuf;
 
 #[test]
@@ -108,12 +108,6 @@ fn cargo_run_ok() {
         name = "server"
         command = "cargo"
         args = ["run", "--quiet", "-p", "server-cell", "--"]
-
-        [[sidecars]]
-        name = "client"
-        command = "cargo"
-        args = ["run", "--quiet", "-p", "client-cell"]
-        stamp_via_env = true
         "#,
     );
 
@@ -121,6 +115,26 @@ fn cargo_run_ok() {
     assert!(!diagnostics
         .iter()
         .any(|diagnostic| diagnostic.message.contains("--sidecar-stamp")));
+}
+
+#[test]
+fn legacy_env_fields_rejected() {
+    let err = toml::from_str::<Manifest>(
+        r#"
+        [project]
+        name = "legacy"
+
+        [[sidecars]]
+        name = "server"
+        command = "cargo"
+        stamp_via_env = true
+        endpoint_env = "SIDECAR_RUNTIME_ENDPOINT"
+        "#,
+    )
+    .unwrap_err()
+    .to_string();
+
+    assert!(err.contains("unknown field"));
 }
 
 #[test]
@@ -148,6 +162,29 @@ fn execution_plan() {
     assert_eq!(plan.app.unwrap().command, "pnpm");
     assert_eq!(plan.targets.len(), 1);
     assert_eq!(plan.inspect_endpoints.len(), 1);
+}
+
+#[test]
+fn endpoint_in_stamp_args() {
+    let state = state_from(
+        r#"
+        [project]
+        name = "app"
+
+        [[sidecars]]
+        name = "api"
+        command = "cargo"
+        "#,
+    );
+
+    let plan = state.execution_plan();
+    let args = plan.targets[0].spawn_args_with_endpoint("tcp://127.0.0.1:4100");
+    let stamp = args
+        .iter()
+        .find(|arg| arg.starts_with("--sidecar-stamp="))
+        .expect("stamp arg should exist");
+    assert!(stamp.contains("v=1;"));
+    assert!(stamp.contains(";e=tcp%3A%2F%2F127.0.0.1%3A4100"));
 }
 
 fn state_from(text: &str) -> DevState {

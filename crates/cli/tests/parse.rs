@@ -11,7 +11,9 @@ fn help_boundary() {
     assert!(help.contains("--force"));
     assert!(help.contains("when omitted, sidecar walks"));
     assert!(help.contains("like docker compose -p"));
-    assert!(help.contains("--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>"));
+    assert!(
+        help.contains("--sidecar-stamp=v=1;a=<app>;n=<namespace>;m=<mode>;s=<source>;e=<endpoint>")
+    );
     assert!(help.contains("README.md for usage/schema"));
     assert!(help.contains("AGENTS.md for boundaries and PR workflow"));
     assert!(help.contains("Source:  https://github.com/PerishCode/sidecar"));

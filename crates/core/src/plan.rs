@@ -4,7 +4,7 @@ use crate::config::{
     AppConfig, InheritEnvConfig, InspectEndpointConfig, Manifest, ProjectConfig, ReadyConfig,
     SidecarConfig,
 };
-use crate::stamp::{Stamp, DEFAULT_SOURCE};
+use crate::stamp::{Stamp, DEFAULT_SOURCE, STAMP_VERSION};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionPlan {
@@ -24,9 +24,7 @@ pub struct AppPlan {
     pub args: Vec<String>,
     pub cwd: String,
     pub stamp: Stamp,
-    pub stamp_via_env: bool,
     pub env: BTreeMap<String, String>,
-    pub endpoint_env: Option<String>,
     pub inherits_env: Vec<InheritEnvPlan>,
     pub inspect_socket: Option<String>,
     pub health_url: Option<String>,
@@ -40,9 +38,7 @@ pub struct SidecarPlan {
     pub args: Vec<String>,
     pub cwd: String,
     pub stamp: Stamp,
-    pub stamp_via_env: bool,
     pub env: BTreeMap<String, String>,
-    pub endpoint_env: Option<String>,
     pub inherits_env: Vec<InheritEnvPlan>,
     pub inspect_socket: Option<String>,
     pub health_url: Option<String>,
@@ -57,9 +53,7 @@ pub struct TargetPlan {
     pub args: Vec<String>,
     pub cwd: String,
     pub stamp: Stamp,
-    pub stamp_via_env: bool,
     pub env: BTreeMap<String, String>,
-    pub endpoint_env: Option<String>,
     pub inherits_env: Vec<InheritEnvPlan>,
     pub inspect_socket: Option<String>,
     pub health_url: Option<String>,
@@ -120,10 +114,12 @@ impl ExecutionPlan {
 impl AppPlan {
     fn from_config(config: &AppConfig, project: &ProjectConfig) -> Self {
         let stamp = Stamp {
+            version: STAMP_VERSION,
             app: config.name.clone(),
             namespace: project.namespace.clone(),
             mode: config.mode.clone(),
             source: DEFAULT_SOURCE.to_string(),
+            endpoint: None,
         };
         Self {
             name: config.name.clone(),
@@ -131,9 +127,7 @@ impl AppPlan {
             args: config.args.clone(),
             cwd: config.cwd.clone(),
             stamp,
-            stamp_via_env: config.stamp_via_env,
             env: config.env.clone(),
-            endpoint_env: config.endpoint_env.clone(),
             inherits_env: config
                 .inherits_env
                 .iter()
@@ -147,15 +141,23 @@ impl AppPlan {
             ready: config.ready.as_ref().map(ReadyPlan::from_config),
         }
     }
+
+    pub fn spawn_args(&self) -> Vec<String> {
+        let mut argv = self.args.clone();
+        argv.extend(self.stamp.args());
+        argv
+    }
 }
 
 impl SidecarPlan {
     fn from_config(config: &SidecarConfig, project: &ProjectConfig) -> Self {
         let stamp = Stamp {
+            version: STAMP_VERSION,
             app: config.name.clone(),
             namespace: project.namespace.clone(),
             mode: config.mode.clone(),
             source: DEFAULT_SOURCE.to_string(),
+            endpoint: None,
         };
         Self {
             name: config.name.clone(),
@@ -163,9 +165,7 @@ impl SidecarPlan {
             args: config.args.clone(),
             cwd: config.cwd.clone(),
             stamp,
-            stamp_via_env: config.stamp_via_env,
             env: config.env.clone(),
-            endpoint_env: config.endpoint_env.clone(),
             inherits_env: config
                 .inherits_env
                 .iter()
@@ -183,20 +183,22 @@ impl SidecarPlan {
     /// Final argv to spawn (sidecar args followed by stamp args).
     pub fn spawn_args(&self) -> Vec<String> {
         let mut argv = self.args.clone();
-        if !self.stamp_via_env {
-            argv.extend(self.stamp.args());
-        }
+        argv.extend(self.stamp.args());
         argv
     }
 }
 
 impl TargetPlan {
-    /// Final argv to spawn (target args followed by stamp args unless env stamping is requested).
+    /// Final argv to spawn (target args followed by stamp args).
     pub fn spawn_args(&self) -> Vec<String> {
         let mut argv = self.args.clone();
-        if !self.stamp_via_env {
-            argv.extend(self.stamp.args());
-        }
+        argv.extend(self.stamp.args());
+        argv
+    }
+
+    pub fn spawn_args_with_endpoint(&self, endpoint: &str) -> Vec<String> {
+        let mut argv = self.args.clone();
+        argv.extend(self.stamp.with_endpoint(endpoint).args());
         argv
     }
 }
@@ -240,9 +242,7 @@ fn build_targets(config: &Manifest) -> Vec<TargetPlan> {
             args: plan.args,
             cwd: plan.cwd,
             stamp: plan.stamp,
-            stamp_via_env: plan.stamp_via_env,
             env: plan.env,
-            endpoint_env: plan.endpoint_env,
             inherits_env: plan.inherits_env,
             inspect_socket: plan.inspect_socket,
             health_url: plan.health_url,
@@ -258,9 +258,7 @@ fn build_targets(config: &Manifest) -> Vec<TargetPlan> {
             args: plan.args,
             cwd: plan.cwd,
             stamp: plan.stamp,
-            stamp_via_env: plan.stamp_via_env,
             env: plan.env,
-            endpoint_env: plan.endpoint_env,
             inherits_env: plan.inherits_env,
             inspect_socket: plan.inspect_socket,
             health_url: plan.health_url,

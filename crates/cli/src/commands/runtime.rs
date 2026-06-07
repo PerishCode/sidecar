@@ -21,7 +21,6 @@ pub(super) struct ReadySummary {
 #[derive(Default)]
 pub(super) struct RuntimeChain {
     ready: BTreeMap<String, ReadySummary>,
-    published_env: BTreeMap<String, String>,
 }
 
 impl RuntimeChain {
@@ -43,12 +42,8 @@ impl RuntimeChain {
         Ok(chain)
     }
 
-    pub(super) fn record(&mut self, target: &TargetPlan, ready: &ReadySummary) {
-        if let (Some(env_name), Some(endpoint)) = (&target.endpoint_env, &ready.endpoint) {
-            self.published_env
-                .insert(env_name.clone(), endpoint.clone());
-        }
-        self.ready.insert(target.name.clone(), ready.clone());
+    pub(super) fn record(&mut self, target_name: &str, ready: &ReadySummary) {
+        self.ready.insert(target_name.to_string(), ready.clone());
     }
 
     pub(super) fn resolve_inherits(
@@ -77,11 +72,11 @@ fn inherited_value(ready: Option<&ReadySummary>, field: &str) -> Result<Option<S
         return Ok(None);
     };
     match field {
-        "endpoint" | "endpoint_env" => Ok(ready.endpoint.clone()),
+        "endpoint" => Ok(ready.endpoint.clone()),
         "runtime_endpoint" => Ok(ready.runtime_endpoint.clone()),
         "instance_id" => Ok(ready.instance_id.clone()),
         other => Err(format!(
-            "invalid inherits_env field {other:?}; expected endpoint|runtime_endpoint|instance_id|endpoint_env"
+            "invalid inherits_env field {other:?}; expected endpoint|runtime_endpoint|instance_id"
         )),
     }
 }

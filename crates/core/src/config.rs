@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub project: ProjectConfig,
     #[serde(default)]
@@ -14,6 +15,7 @@ pub struct Manifest {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
     pub name: String,
     #[serde(default = "default_namespace")]
@@ -25,6 +27,7 @@ pub struct ProjectConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AppConfig {
     pub name: String,
     pub command: String,
@@ -35,11 +38,7 @@ pub struct AppConfig {
     #[serde(default = "default_mode")]
     pub mode: String,
     #[serde(default)]
-    pub stamp_via_env: bool,
-    #[serde(default)]
     pub env: BTreeMap<String, String>,
-    #[serde(default)]
-    pub endpoint_env: Option<String>,
     #[serde(default)]
     pub inherits_env: Vec<InheritEnvConfig>,
     #[serde(default)]
@@ -51,6 +50,7 @@ pub struct AppConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct SidecarConfig {
     pub name: String,
     pub command: String,
@@ -61,11 +61,7 @@ pub struct SidecarConfig {
     #[serde(default = "default_mode")]
     pub mode: String,
     #[serde(default)]
-    pub stamp_via_env: bool,
-    #[serde(default)]
     pub env: BTreeMap<String, String>,
-    #[serde(default)]
-    pub endpoint_env: Option<String>,
     #[serde(default)]
     pub inherits_env: Vec<InheritEnvConfig>,
     #[serde(default)]
@@ -77,6 +73,7 @@ pub struct SidecarConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReadyConfig {
     pub role: String,
     #[serde(default = "default_ready_timeout_secs")]
@@ -84,18 +81,21 @@ pub struct ReadyConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InheritEnvConfig {
     pub name: String,
     pub from: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InspectConfig {
     #[serde(default)]
     pub endpoints: Vec<InspectEndpointConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InspectEndpointConfig {
     pub name: String,
     pub kind: String,

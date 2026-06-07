@@ -137,9 +137,7 @@ fn app_json(app: &AppPlan) -> serde_json::Value {
         "args": app.args,
         "cwd": app.cwd,
         "stamp": stamp_json(&app.stamp),
-        "spawnArgs": app_spawn_args(app),
-        "stampViaEnv": app.stamp_via_env,
-        "endpointEnv": app.endpoint_env,
+        "spawnArgs": app.spawn_args(),
         "inheritsEnv": inherits_json(&app.inherits_env),
         "inspectSocket": app.inspect_socket,
         "healthUrl": app.health_url,
@@ -155,8 +153,6 @@ fn target_json(target: &TargetPlan) -> serde_json::Value {
         "cwd": target.cwd,
         "stamp": stamp_json(&target.stamp),
         "spawnArgs": target.spawn_args(),
-        "stampViaEnv": target.stamp_via_env,
-        "endpointEnv": target.endpoint_env,
         "inheritsEnv": inherits_json(&target.inherits_env),
         "inspectSocket": target.inspect_socket,
         "healthUrl": target.health_url,
@@ -175,8 +171,6 @@ fn sidecar_json(sidecar: &SidecarPlan) -> serde_json::Value {
         "cwd": sidecar.cwd,
         "stamp": stamp_json(&sidecar.stamp),
         "spawnArgs": sidecar.spawn_args(),
-        "stampViaEnv": sidecar.stamp_via_env,
-        "endpointEnv": sidecar.endpoint_env,
         "inheritsEnv": inherits_json(&sidecar.inherits_env),
         "inspectSocket": sidecar.inspect_socket,
         "healthUrl": sidecar.health_url,
@@ -185,10 +179,12 @@ fn sidecar_json(sidecar: &SidecarPlan) -> serde_json::Value {
 
 fn stamp_json(stamp: &sidecar_core::Stamp) -> serde_json::Value {
     serde_json::json!({
+        "version": stamp.version,
         "app": stamp.app,
         "namespace": stamp.namespace,
         "mode": stamp.mode,
         "source": stamp.source,
+        "endpoint": stamp.endpoint,
     })
 }
 
@@ -202,12 +198,4 @@ fn inherits_json(bindings: &[sidecar_core::InheritEnvPlan]) -> Vec<serde_json::V
             })
         })
         .collect()
-}
-
-fn app_spawn_args(app: &AppPlan) -> Vec<String> {
-    let mut argv = app.args.clone();
-    if !app.stamp_via_env {
-        argv.extend(app.stamp.args());
-    }
-    argv
 }

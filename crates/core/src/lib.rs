@@ -35,6 +35,6 @@ pub use runtime::tcp::tcp_listeners_for_pid;
 pub use socket::{SocketEndpoint, SocketEndpointParseError};
 pub use stamp::{
     decode as decode_stamp, encode as encode_stamp, read_flag as read_stamp_flag, read_stamp,
-    Stamp, DEFAULT_MODE, DEFAULT_NAMESPACE, DEFAULT_SOURCE, STAMP_FLAG,
+    Stamp, DEFAULT_MODE, DEFAULT_NAMESPACE, DEFAULT_SOURCE, STAMP_FLAG, STAMP_VERSION,
 };
 pub use state::{DevState, LoadError};

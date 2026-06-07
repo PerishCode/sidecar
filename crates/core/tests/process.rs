@@ -3,14 +3,14 @@ use sidecar_core::process::{filter_brokers_for_test, filter_for_test, parse_ps_o
 #[test]
 fn parse_ps() {
     let text =
-        "  123 cargo run --sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar\n  456 node server.js\n";
+        "  123 cargo run --sidecar-stamp=v=1;a=api;n=default;m=dev;s=tool%3Asidecar\n  456 node server.js\n";
     let parsed = parse_ps_output(text);
     assert_eq!(parsed.len(), 2);
     assert_eq!(
         parsed[0],
         (
             123,
-            "cargo run --sidecar-stamp=a=api;n=default;m=dev;s=tool%3Asidecar".into()
+            "cargo run --sidecar-stamp=v=1;a=api;n=default;m=dev;s=tool%3Asidecar".into()
         )
     );
     assert_eq!(parsed[1], (456, "node server.js".into()));
@@ -21,11 +21,11 @@ fn filter_stamp() {
     let rows = vec![
         (
             10,
-            "controller --sidecar-stamp=a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
+            "controller --sidecar-stamp=v=1;a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
         ),
         (
             11,
-            "renderer --sidecar-stamp=a=renderer;n=default;m=dev;s=tool%3Asidecar".into(),
+            "renderer --sidecar-stamp=v=1;a=renderer;n=default;m=dev;s=tool%3Asidecar".into(),
         ),
         (12, "noise --no-stamp".into()),
     ];
@@ -47,7 +47,7 @@ fn filter_broker() {
         ),
         (
             12,
-            "controller --sidecar-stamp=a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
+            "controller --sidecar-stamp=v=1;a=controller;n=default;m=dev;s=tool%3Asidecar".into(),
         ),
     ];
     let hits = filter_brokers_for_test(rows, "local", "default");
