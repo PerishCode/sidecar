@@ -7,8 +7,8 @@ Lightweight, manifest-driven process instance manager for projects that need to 
 The core mechanisms are:
 
 - **Manifest-closed lifecycle**: command, cwd, args, env, readiness, inspect socket, status identity, stop behavior, and reset boundary are declared up front.
-- **Packed stamp identity**: spawned processes receive one compact `--sidecar-stamp=...` arg so they can be discovered and managed later.
-- **Broker runtime endpoint**: each project/namespace gets one local TCP broker, discovered from process argv plus live listener probing, and injected into targets as `SIDECAR_RUNTIME_ENDPOINT`.
+- **Packed stamp contract**: spawned processes receive one compact `--sidecar-stamp=...` arg that carries sidecar-owned identity and runtime endpoint metadata.
+- **Broker runtime endpoint**: each project/namespace gets one local TCP broker, discovered from process argv plus live listener probing, and encoded into spawned target stamps.
 - **Inspect bridge**: a single SidecarRuntime event frame over a Unix socket, with TCP reserved for fallback probes.
 
 ## Why
@@ -135,7 +135,7 @@ Top-level shape:
 - `[project]`: `name`, `namespace`, optional `root`, optional `data_dir`
 - `[[sidecars]]`: background service targets, launched in declaration order
 - `[app]`: optional foreground app target, launched after sidecars
-- per target: `name`, `command`, `args`, `cwd`, `mode`, `env`, `stamp_via_env`, `inspect_socket`, `endpoint_env`, `inherits_env`, `ready`
+- per target: `name`, `command`, `args`, `cwd`, `mode`, `env`, `inspect_socket`, `inherits_env`, `ready`
 
 `inspect_socket` supports `{project}`, `{namespace}`, and `{name}` templates.
 
@@ -148,13 +148,13 @@ before launching targets. The broker is identified by argv:
 --sidecar-broker=p=<project.name>;n=<project.namespace>;s=tool%3Asidecar
 ```
 
-The broker endpoint is not written to state files and is not encoded into argv.
+The broker endpoint is not written to state files or injected into env.
 `sidecar` discovers it by finding the broker process, inspecting TCP listeners
 owned by that pid, and confirming the listener with a hello handshake. Started
-targets receive the live endpoint as:
+targets receive the live endpoint as part of the packed stamp's `e` field:
 
 ```text
-SIDECAR_RUNTIME_ENDPOINT=tcp://127.0.0.1:<port>
+--sidecar-stamp=v=1;a=<name>;n=<namespace>;m=<mode>;s=tool%3Asidecar;e=tcp%3A%2F%2F127.0.0.1%3A<port>
 ```
 
 `status` and `list` include a `runtime` object in JSON output and a `runtime:`
@@ -164,13 +164,22 @@ still running.
 
 ## Stamp Args Protocol
 
-A consumer that uses `sidecar` to manage a process must accept (and ignore) the canonical packed stamp arg appended to its command line:
+A consumer that uses `sidecar` to manage a process must accept (and ignore) the
+canonical packed stamp arg appended to its command line:
 
 ```
---sidecar-stamp=a=<sidecar.name>;n=<project.namespace>;m=<sidecar.mode>;s=tool%3Asidecar
+--sidecar-stamp=v=1;a=<sidecar.name>;n=<project.namespace>;m=<sidecar.mode>;s=tool%3Asidecar;e=<runtime-endpoint>
 ```
 
-The short keys are `a` (app), `n` (namespace), `m` (mode), and `s` (source); values are percent-encoded. This lets `sidecar` discover, status-check, and stop running sidecars cross-platform. Targets that cannot accept extra argv must set `stamp_via_env = true`; `sidecar` then records their pid in project state and injects stamp env for consumers that need it.
+The short keys are `v` (stamp protocol version), `a` (app/workload), `n`
+(namespace), `m` (mode), `s` (source), and `e` (sidecar runtime endpoint
+locator). Values are percent-encoded. `v`, `a`, `n`, `m`, and `s` are required;
+`e` is attached when a target is started and the broker endpoint is known.
+
+The stamp is sidecar's only launch metadata contract. There is no env fallback
+for sidecar identity or runtime endpoint data. Business env remains available
+through target `env` and `inherits_env`, but sidecar control-plane metadata must
+come from `--sidecar-stamp`.
 
 ## Inspect Bridge
 
@@ -201,11 +210,10 @@ payload schemas, response schemas, and any aggregation CLI or crate.
 broker state, and namespace identity, not product health or typed protocol
 state.
 
-`SIDECAR_RUNTIME_ENDPOINT` is an injected local runtime endpoint for targets
-that opt into `endpoint_env`. Treat it as sidecar runtime infrastructure, not
-yet as a stable public API for project protocol adapters. Public reusable crates
-for stamps, inspect envelopes, endpoint parsing, or typed bootstrap helpers
-should wait until real projects converge on shared needs.
+The stamp's `e` field is sidecar runtime infrastructure, not a business
+endpoint and not yet a stable public API for project protocol adapters. Public
+reusable crates for stamps, inspect envelopes, endpoint parsing, or typed
+bootstrap helpers should wait until real projects converge on shared needs.
 
 Report parser gaps, diagnostics noise, install issues, and missing capabilities at:
 

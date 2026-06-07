@@ -64,13 +64,7 @@ impl DevState {
             if let Some(ready) = &app.ready {
                 validate_required_name(&mut diagnostics, "app.ready.role", &ready.role);
             }
-            validate_stamp_forwarding(
-                &mut diagnostics,
-                "app",
-                &app.command,
-                &app.args,
-                app.stamp_via_env,
-            );
+            validate_stamp_forwarding(&mut diagnostics, "app", &app.command, &app.args);
         } else if self.config.sidecars.is_empty() {
             diagnostics.push(Diagnostic::warning(
                 "app",
@@ -105,13 +99,7 @@ impl DevState {
             if let Some(ready) = &sidecar.ready {
                 validate_required_name(&mut diagnostics, format!("{path}.ready.role"), &ready.role);
             }
-            validate_stamp_forwarding(
-                &mut diagnostics,
-                &path,
-                &sidecar.command,
-                &sidecar.args,
-                sidecar.stamp_via_env,
-            );
+            validate_stamp_forwarding(&mut diagnostics, &path, &sidecar.command, &sidecar.args);
         }
 
         let mut endpoint_names = HashSet::new();
@@ -147,14 +135,13 @@ fn validate_stamp_forwarding(
     path: &str,
     command: &str,
     args: &[String],
-    stamp_via_env: bool,
 ) {
-    if stamp_via_env || !is_cargo_command(command) || !cargo_run_needs_separator(args) {
+    if !is_cargo_command(command) || !cargo_run_needs_separator(args) {
         return;
     }
     diagnostics.push(Diagnostic::warning(
         format!("{path}.args"),
-        "cargo run target may consume the appended --sidecar-stamp argument; add `--` after cargo run options or set stamp_via_env = true",
+        "cargo run target may consume the appended --sidecar-stamp argument; add `--` after cargo run options",
     ));
 }
 

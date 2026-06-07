@@ -22,11 +22,6 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const SIDECAR_INSPECT_SOCKET_ENV: &str = "SIDECAR_INSPECT_SOCKET";
-const SIDECAR_RUNTIME_ENDPOINT_ENV: &str = "SIDECAR_RUNTIME_ENDPOINT";
-const STIM_SIDECAR_APP_ENV: &str = "STIM_SIDECAR_APP";
-const STIM_SIDECAR_NAMESPACE_ENV: &str = "STIM_SIDECAR_NAMESPACE";
-const STIM_SIDECAR_MODE_ENV: &str = "STIM_SIDECAR_MODE";
-const STIM_SIDECAR_SOURCE_ENV: &str = "STIM_SIDECAR_SOURCE";
 
 pub(crate) fn start(
     state: &DevState,
@@ -44,16 +39,17 @@ pub(crate) fn start(
                 target.name, running
             ));
         }
-        let mut extra_env = chain.resolve_inherits(target)?;
-        extra_env.push((
-            SIDECAR_RUNTIME_ENDPOINT_ENV.to_string(),
-            runtime_endpoint.clone(),
-        ));
-        let (pid, ready, log_path) =
-            spawn_detached(state.config_path.parent(), paths, target, &extra_env)?;
+        let extra_env = chain.resolve_inherits(target)?;
+        let (pid, ready, log_path) = spawn_detached(
+            state.config_path.parent(),
+            paths,
+            target,
+            &runtime_endpoint,
+            &extra_env,
+        )?;
         record_target_state(paths, target, pid, ready.as_ref(), &log_path)?;
         if let Some(ready) = &ready {
-            chain.record(target, ready);
+            chain.record(&target.name, ready);
         }
         println!("started {} pid={pid}", target.name);
     }
@@ -247,6 +243,7 @@ fn spawn_detached(
     config_dir: Option<&Path>,
     paths: &DataPaths,
     target: &TargetPlan,
+    runtime_endpoint: &str,
     extra_env: &[(String, String)],
 ) -> Result<(u32, Option<ReadySummary>, PathBuf), String> {
     let cwd = resolve_cwd(config_dir, &target.cwd);
@@ -266,7 +263,7 @@ fn spawn_detached(
         .map_err(|err| format!("failed to clone {}: {err}", log_path.display()))?;
     let mut command = Command::new(&target.command);
     command
-        .args(target.spawn_args())
+        .args(target.spawn_args_with_endpoint(runtime_endpoint))
         .current_dir(&cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
@@ -279,13 +276,6 @@ fn spawn_detached(
     }
     if let Some(socket) = &target.inspect_socket {
         command.env(SIDECAR_INSPECT_SOCKET_ENV, socket);
-    }
-    if target.stamp_via_env {
-        command
-            .env(STIM_SIDECAR_APP_ENV, &target.stamp.app)
-            .env(STIM_SIDECAR_NAMESPACE_ENV, &target.stamp.namespace)
-            .env(STIM_SIDECAR_MODE_ENV, &target.stamp.mode)
-            .env(STIM_SIDECAR_SOURCE_ENV, &target.stamp.source);
     }
     detach_process_group(&mut command);
     let mut child = command

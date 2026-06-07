@@ -2,12 +2,14 @@
 //! process command line so the `sidecar` tool can identify and operate on it
 //! later.
 //!
-//! The canonical flag is `--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>`.
+//! The canonical flag is
+//! `--sidecar-stamp=v=1;a=<app>;n=<namespace>;m=<mode>;s=<source>;e=<endpoint>`.
 //! Values are percent-encoded. Discovery only relies on this flag (not env
 //! vars), so any consumer that accepts and ignores the canonical flag is
 //! interoperable with the `sidecar` CLI.
 
 pub const STAMP_FLAG: &str = "--sidecar-stamp";
+pub const STAMP_VERSION: u8 = 1;
 
 pub const DEFAULT_NAMESPACE: &str = "default";
 pub const DEFAULT_MODE: &str = "dev";
@@ -15,15 +17,23 @@ pub const DEFAULT_SOURCE: &str = "tool:sidecar";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Stamp {
+    pub version: u8,
     pub app: String,
     pub namespace: String,
     pub mode: String,
     pub source: String,
+    pub endpoint: Option<String>,
 }
 
 impl Stamp {
     pub fn args(&self) -> Vec<String> {
         vec![format!("{STAMP_FLAG}={}", encode(self))]
+    }
+
+    pub fn with_endpoint(&self, endpoint: impl Into<String>) -> Self {
+        let mut stamp = self.clone();
+        stamp.endpoint = Some(endpoint.into());
+        stamp
     }
 }
 
@@ -45,20 +55,28 @@ pub fn read_stamp(args: &[String]) -> Option<Stamp> {
 }
 
 pub fn encode(stamp: &Stamp) -> String {
-    format!(
-        "a={};n={};m={};s={}",
+    let mut encoded = format!(
+        "v={};a={};n={};m={};s={}",
+        stamp.version,
         encode_value(&stamp.app),
         encode_value(&stamp.namespace),
         encode_value(&stamp.mode),
         encode_value(&stamp.source),
-    )
+    );
+    if let Some(endpoint) = &stamp.endpoint {
+        encoded.push_str(";e=");
+        encoded.push_str(&encode_value(endpoint));
+    }
+    encoded
 }
 
 pub fn decode(value: &str) -> Result<Stamp, String> {
+    let mut version = None;
     let mut app = None;
     let mut namespace = None;
     let mut mode = None;
     let mut source = None;
+    let mut endpoint = None;
 
     for part in value.split(';') {
         let Some((key, raw_value)) = part.split_once('=') else {
@@ -66,11 +84,21 @@ pub fn decode(value: &str) -> Result<Stamp, String> {
         };
         let decoded = decode_value(raw_value)?;
         match key {
+            "v" if version.is_none() => {
+                let parsed = decoded
+                    .parse::<u8>()
+                    .map_err(|_| "stamp version must be an integer".to_string())?;
+                if parsed != STAMP_VERSION {
+                    return Err(format!("unsupported stamp version {parsed}"));
+                }
+                version = Some(parsed);
+            }
             "a" if app.is_none() => app = Some(decoded),
             "n" if namespace.is_none() => namespace = Some(decoded),
             "m" if mode.is_none() => mode = Some(decoded),
             "s" if source.is_none() => source = Some(decoded),
-            "a" | "n" | "m" | "s" => {
+            "e" if endpoint.is_none() => endpoint = Some(decoded),
+            "v" | "a" | "n" | "m" | "s" | "e" => {
                 return Err(format!("duplicate stamp key {key:?}"));
             }
             other => return Err(format!("unknown stamp key {other:?}")),
@@ -78,14 +106,16 @@ pub fn decode(value: &str) -> Result<Stamp, String> {
     }
 
     Ok(Stamp {
+        version: required(version, "v")?,
         app: required(app, "a")?,
         namespace: required(namespace, "n")?,
         mode: required(mode, "m")?,
         source: required(source, "s")?,
+        endpoint,
     })
 }
 
-fn required(value: Option<String>, key: &str) -> Result<String, String> {
+fn required<T>(value: Option<T>, key: &str) -> Result<T, String> {
     value.ok_or_else(|| format!("stamp missing {key:?}"))
 }
 
