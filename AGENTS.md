@@ -16,7 +16,7 @@ This repository is not a `stim.io` module. `stim.io` and other consumers install
 - Keep `crates/core` product-neutral. No `stim`, `tauri`, chat, agent, or message-ledger semantics may leak in.
 - Keep `crates/core` free of CLI output and process side effects. It exposes config (`Manifest`), diagnostics, plan, socket parser, stamp protocol, process discovery, and inspect client.
 - Keep `crates/cli` as the installed binary boundary named `sidecar`.
-- Use explicit `--config <path>`. No default config filename is reserved.
+- `--config <path>` is the explicit manifest override. Without it, sidecar walks from cwd upward for the nearest `sidecar.toml`.
 - Release assets are R2-backed. `SIDECAR_RELEASES_*` repo vars/secrets must be present before any release workflow can run.
 - Consumer validation must use installed release assets, not `cargo install --path`, once a release exists.
 

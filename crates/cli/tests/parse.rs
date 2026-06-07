@@ -5,10 +5,10 @@ fn help_boundary() {
     let help = help_text();
     assert!(help.contains("Product-neutral sidecar lifecycle and inspect IPC manager."));
     assert!(help.contains("consumers own product semantics"));
-    assert!(help.contains("doctor   --config <path>"));
+    assert!(help.contains("doctor   [--config <path>]"));
     assert!(help.contains("inspect  <sidecar> <event> [<json-payload>]"));
     assert!(help.contains("--inspect-timeout <s>"));
-    assert!(help.contains("explicit manifest path; no default filename is reserved"));
+    assert!(help.contains("when omitted, sidecar walks"));
     assert!(help.contains("like docker compose -p"));
     assert!(help.contains("--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>"));
     assert!(help.contains("README.md for usage/schema"));

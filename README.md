@@ -2,7 +2,7 @@
 
 Lightweight, manifest-driven process instance manager for projects that need to run a small set of cooperating local processes.
 
-`sidecar` turns an explicit config file into a validated process plan, lifecycle commands, process discovery, reset behavior, and an optional inspect IPC channel. It is intentionally product-agnostic: consumers own their manifests, product semantics, and inspect server implementations.
+`sidecar` turns a manifest file into a validated process plan, lifecycle commands, process discovery, reset behavior, and an optional inspect IPC channel. It is intentionally product-agnostic: consumers own their manifests, product semantics, and inspect server implementations.
 
 The core mechanisms are:
 
@@ -64,6 +64,11 @@ Beta releases are started from `release-beta`. The workflow advances `vX.Y.Z-bet
 ## Manifest Model
 
 `sidecar.toml` is the lifecycle contract, not a launch snippet. A target's command, cwd, args, static env, stamp delivery, readiness, inspect socket, status identity, stop behavior, and reset boundary must be derivable from the manifest plus product-neutral sidecar rules.
+
+When `--config <path>` is omitted, `sidecar` walks from the current directory
+upward to find the nearest `sidecar.toml`. Explicit `--config` always wins.
+Discovered configs are printed on stderr as `sidecar: using config <path>`.
+If no manifest is found, sidecar fails and prints the searched paths.
 
 Top-level shape:
 
