@@ -2,9 +2,13 @@ use crate::output::{print_diagnostics, print_plan};
 use crate::update;
 use crate::{broker_runtime, commands};
 use sidecar_core::{resolve_data_paths, DataPaths, DevState, Severity};
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const INSPECT_DEFAULT_TIMEOUT_SECS: u64 = 5;
+const DEFAULT_CONFIG_FILENAME: &str = "sidecar.toml";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum OutputFormat {
@@ -39,22 +43,23 @@ It owns manifest-closed lifecycle, appends stamp identity, discovers/stops
 targets, and sends one-shot inspect events; consumers own product semantics.
 
 Commands:
-  doctor   --config <path> [--format text|json]
-  plan     --config <path> [--format text|json]
-  inspect  config --config <path> [--format text|json]
-  inspect  <sidecar> <event> [<json-payload>] --config <path> [--format text|json] [--inspect-timeout <seconds>]
-  start    --config <path> [<sidecar>]
-  restart  --config <path> [<sidecar>]
-  stop     --config <path> [<sidecar>]
-  status   --config <path> [--format text|json]
-  list     --config <path> [--format text|json]
-  reset    --config <path> [--all]
+  doctor   [--config <path>] [--format text|json]
+  plan     [--config <path>] [--format text|json]
+  inspect  config [--config <path>] [--format text|json]
+  inspect  <sidecar> <event> [<json-payload>] [--config <path>] [--format text|json] [--inspect-timeout <seconds>]
+  start    [--config <path>] [<sidecar>]
+  restart  [--config <path>] [<sidecar>]
+  stop     [--config <path>] [<sidecar>]
+  status   [--config <path>] [--format text|json]
+  list     [--config <path>] [--format text|json]
+  reset    [--config <path>] [--all]
   update
   help
   version
 
 Global flags:
-  --config <path>       explicit manifest path; no default filename is reserved
+  --config <path>       explicit manifest path; when omitted, sidecar walks
+                        ancestors of cwd for sidecar.toml
   -p, --project <name>  override [project].namespace, like docker compose -p
   --data-home <path>    override global state/update-cache root
   --format text|json    output format where the command supports it
@@ -244,11 +249,11 @@ fn require_no_extra_args(
 }
 
 fn load_state(parsed: &ParsedArgs) -> Result<DevState, String> {
-    let config = parsed
-        .config
-        .as_ref()
-        .ok_or_else(|| "--config <path> is required".to_string())?;
-    let mut state = DevState::from_config_file(config).map_err(|error| error.to_string())?;
+    let (config, discovered) = resolve_config_path(parsed.config.as_deref())?;
+    if discovered {
+        eprintln!("sidecar: using config {}", config.display());
+    }
+    let mut state = DevState::from_config_file(&config).map_err(|error| error.to_string())?;
     let env_project = std::env::var("SIDECAR_PROJECT")
         .ok()
         .filter(|value| !value.is_empty());
@@ -256,6 +261,32 @@ fn load_state(parsed: &ParsedArgs) -> Result<DevState, String> {
         state.config.project.namespace = ns;
     }
     Ok(state)
+}
+
+fn resolve_config_path(explicit: Option<&str>) -> Result<(PathBuf, bool), String> {
+    if let Some(config) = explicit {
+        return Ok((PathBuf::from(config), false));
+    }
+
+    let cwd = std::env::current_dir().map_err(|error| format!("failed to read cwd: {error}"))?;
+    let mut searched = Vec::new();
+    for dir in cwd.ancestors() {
+        let candidate = dir.join(DEFAULT_CONFIG_FILENAME);
+        if candidate.is_file() {
+            return Ok((candidate, true));
+        }
+        searched.push(candidate);
+    }
+
+    let searched = searched
+        .iter()
+        .map(|path| format!("- {}", path.display()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(format!(
+        "no sidecar config found from {} upward.\nHint: create sidecar.toml here or pass --config <path>.\nSearched:\n{searched}",
+        cwd.display()
+    ))
 }
 
 fn data_paths_for(parsed: &ParsedArgs, state: &DevState) -> DataPaths {
@@ -378,7 +409,7 @@ fn parse_positive_seconds(option: &str, value: &str) -> Result<u64, String> {
 
 #[doc(hidden)]
 pub mod __test {
-    use super::{parse, OutputFormat};
+    use super::{parse, resolve_config_path, OutputFormat};
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct ParseSummary {
@@ -406,5 +437,10 @@ pub mod __test {
             timeout_secs: parsed.inspect_timeout_secs,
             reset_all: parsed.reset_all,
         })
+    }
+
+    pub fn resolve_config(explicit: Option<&str>) -> Result<(String, bool), String> {
+        let (path, discovered) = resolve_config_path(explicit)?;
+        Ok((path.display().to_string(), discovered))
     }
 }
