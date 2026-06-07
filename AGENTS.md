@@ -11,11 +11,25 @@
 
 This repository is not a `stim.io` module. `stim.io` and other consumers install `sidecar` as a published CLI through the R2-backed `manage.sh` / `manage.ps1` entrypoints.
 
+## Product Boundary
+
+`sidecar` is a local process control plane, not a cluster scheduler and not a local Kubernetes layer. It gives independent local workloads shared lifecycle, identity, discovery, inspect, and reset semantics while preserving their host filesystem, PATH, localhost, shell environment, credentials, and directly inspectable process shape.
+
+Its core posture is:
+
+- **Form isolation** — server, client, daemon, desktop, and dev-server targets are modeled as distinct workloads with their own wrapper, runtime config, status, readiness, logs, stop, and reset boundary.
+- **No space isolation** — targets still run on the same host, user environment, filesystem, local tools, and loopback network. Do not introduce container image, pod, volume, network namespace, sandbox, or cluster assumptions into the product model.
+- **Unified control plane** — sidecar owns namespace, identity stamps, dynamic endpoint injection, broker/runtime discovery, process lifecycle, inspect, reset, diagnostics, and data-home isolation.
+- **Business unawareness** — product services should remain ordinary HTTP/Vite/Electron/Rust/CLI processes that consume argv, env, cwd, files, and endpoints. They should not need to understand the manifest, broker internals, stamp protocol, or sidecar runtime model.
+
+The TCP broker is local service discovery and runtime registry for host processes. It is not a service mesh, cross-node scheduler, or container networking abstraction.
+
 ## Core Rules
 
 - Keep `crates/core` product-neutral. No `stim`, `tauri`, chat, agent, or message-ledger semantics may leak in.
 - Keep `crates/core` free of CLI output and process side effects. It exposes config (`Manifest`), diagnostics, plan, socket parser, stamp protocol, process discovery, and inspect client.
 - Keep `crates/cli` as the installed binary boundary named `sidecar`.
+- Manifest fields describe local process control-plane behavior only: start shape, cwd, args, env, readiness, identity, discovery, inspect, stop, reset, and data paths. Do not add product semantics or container/cluster scheduling semantics.
 - `--config <path>` is the explicit manifest override. Without it, sidecar walks from cwd upward for the nearest `sidecar.toml`.
 - Release assets are R2-backed. `SIDECAR_RELEASES_*` repo vars/secrets must be present before any release workflow can run.
 - Consumer validation must use installed release assets, not `cargo install --path`, once a release exists.
