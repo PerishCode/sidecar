@@ -43,6 +43,87 @@ fn inspect_optional() {
 }
 
 #[test]
+fn sidecar_only_ok() {
+    let state = state_from(
+        r#"
+        [project]
+        name = "cells"
+
+        [[sidecars]]
+        name = "server"
+        command = "cargo"
+        args = ["run", "--quiet", "-p", "server-cell", "--"]
+        "#,
+    );
+
+    let diagnostics = state.diagnostics();
+    assert!(!diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.path == "app"));
+}
+
+#[test]
+fn empty_warns() {
+    let state = state_from(
+        r#"
+        [project]
+        name = "empty"
+        "#,
+    );
+
+    let diagnostics = state.diagnostics();
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.path == "app" && diagnostic.message.contains("no app or sidecar command")
+    }));
+}
+
+#[test]
+fn cargo_run_warns() {
+    let state = state_from(
+        r#"
+        [project]
+        name = "cells"
+
+        [[sidecars]]
+        name = "server"
+        command = "cargo"
+        args = ["run", "--quiet", "-p", "server-cell"]
+        "#,
+    );
+
+    let diagnostics = state.diagnostics();
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.path == "sidecars[0].args" && diagnostic.message.contains("--sidecar-stamp")
+    }));
+}
+
+#[test]
+fn cargo_run_ok() {
+    let state = state_from(
+        r#"
+        [project]
+        name = "cells"
+
+        [[sidecars]]
+        name = "server"
+        command = "cargo"
+        args = ["run", "--quiet", "-p", "server-cell", "--"]
+
+        [[sidecars]]
+        name = "client"
+        command = "cargo"
+        args = ["run", "--quiet", "-p", "client-cell"]
+        stamp_via_env = true
+        "#,
+    );
+
+    let diagnostics = state.diagnostics();
+    assert!(!diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("--sidecar-stamp")));
+}
+
+#[test]
 fn execution_plan() {
     let state = state_from(
         r#"

@@ -214,6 +214,8 @@ response: {"kind":"event_response","id":"...","payload":<json>}\n
        or {"kind":"event_error","id":"...","error":{"code":"...","message":"..."}}\n
 ```
 
+When CLI inspect is called without an explicit payload, the request payload is `{}` rather than `null`; typed project protocols should treat this as the unit/no-input event shape.
+
 Default transport is Unix (`unix:///absolute/path.sock`). TCP is reserved for non-Unix fallback only.
 
 The implementation is `crates/core/src/inspect.rs`. The CLI orchestration is `commands::inspect` in `crates/cli/src/commands.rs`.

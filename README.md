@@ -180,7 +180,32 @@ The short keys are `a` (app), `n` (namespace), `m` (mode), and `s` (source); val
 - response: `{"kind":"event_response","id":"...","payload":<json>}\n`
 - error:    `{"kind":"event_error","id":"...","error":{"code":"...","message":"..."}}\n`
 
+When `<json-payload>` is omitted, `sidecar inspect` sends `{}`. This maps
+naturally to typed project protocols with unit/no-input events.
+
 Unix sockets are the canonical transport (`unix:///absolute/path.sock`). TCP (`tcp://host:port`) is reserved for non-Unix fallback or explicit compatibility probes.
+
+## Project Protocols
+
+For project-owned typed protocols, the recommended path today is per-workload
+`inspect_socket` plus typed event names owned by the project:
+
+```sh
+sidecar inspect server server.status
+sidecar inspect client client.status
+```
+
+`sidecar` owns the transport envelope and timeout. The project owns event names,
+payload schemas, response schemas, and any aggregation CLI or crate.
+`sidecar status` intentionally stays process-level: it reports sidecar-known pids,
+broker state, and namespace identity, not product health or typed protocol
+state.
+
+`SIDECAR_RUNTIME_ENDPOINT` is an injected local runtime endpoint for targets
+that opt into `endpoint_env`. Treat it as sidecar runtime infrastructure, not
+yet as a stable public API for project protocol adapters. Public reusable crates
+for stamps, inspect envelopes, endpoint parsing, or typed bootstrap helpers
+should wait until real projects converge on shared needs.
 
 Report parser gaps, diagnostics noise, install issues, and missing capabilities at:
 

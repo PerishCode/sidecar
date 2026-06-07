@@ -214,7 +214,7 @@ pub(crate) fn inspect(
         Some(text) if !text.is_empty() => serde_json::from_str(text).map_err(|err| {
             format!("payload is not valid JSON: {err}; quote the payload as a single argument")
         })?,
-        _ => Value::Null,
+        _ => serde_json::json!({}),
     };
     let request = InspectRequest {
         event: event.to_string(),

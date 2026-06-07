@@ -64,10 +64,17 @@ impl DevState {
             if let Some(ready) = &app.ready {
                 validate_required_name(&mut diagnostics, "app.ready.role", &ready.role);
             }
-        } else {
+            validate_stamp_forwarding(
+                &mut diagnostics,
+                "app",
+                &app.command,
+                &app.args,
+                app.stamp_via_env,
+            );
+        } else if self.config.sidecars.is_empty() {
             diagnostics.push(Diagnostic::warning(
                 "app",
-                "no app command is configured; only sidecar and inspect plans can run",
+                "no app or sidecar command is configured; lifecycle commands have no targets",
             ));
         }
 
@@ -98,6 +105,13 @@ impl DevState {
             if let Some(ready) = &sidecar.ready {
                 validate_required_name(&mut diagnostics, format!("{path}.ready.role"), &ready.role);
             }
+            validate_stamp_forwarding(
+                &mut diagnostics,
+                &path,
+                &sidecar.command,
+                &sidecar.args,
+                sidecar.stamp_via_env,
+            );
         }
 
         let mut endpoint_names = HashSet::new();
@@ -126,6 +140,37 @@ fn validate_required_name(diagnostics: &mut Vec<Diagnostic>, path: impl Into<Str
     if value.trim().is_empty() {
         diagnostics.push(Diagnostic::error(path, "value must not be empty"));
     }
+}
+
+fn validate_stamp_forwarding(
+    diagnostics: &mut Vec<Diagnostic>,
+    path: &str,
+    command: &str,
+    args: &[String],
+    stamp_via_env: bool,
+) {
+    if stamp_via_env || !is_cargo_command(command) || !cargo_run_needs_separator(args) {
+        return;
+    }
+    diagnostics.push(Diagnostic::warning(
+        format!("{path}.args"),
+        "cargo run target may consume the appended --sidecar-stamp argument; add `--` after cargo run options or set stamp_via_env = true",
+    ));
+}
+
+fn is_cargo_command(command: &str) -> bool {
+    command
+        .rsplit(['/', '\\'])
+        .next()
+        .map(|name| name == "cargo" || name == "cargo.exe")
+        .unwrap_or(false)
+}
+
+fn cargo_run_needs_separator(args: &[String]) -> bool {
+    let Some(run_index) = args.iter().position(|arg| arg == "run") else {
+        return false;
+    };
+    !args.iter().skip(run_index + 1).any(|arg| arg == "--")
 }
 
 impl fmt::Display for LoadError {
