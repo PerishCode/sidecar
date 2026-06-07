@@ -317,28 +317,34 @@ pub(super) fn maybe_stop_broker(
     plan: &ExecutionPlan,
     paths: &DataPaths,
     sidecar: Option<&str>,
+    force: bool,
 ) -> Result<(), String> {
     if sidecar.is_none() || running_target_count(plan, paths)? == 0 {
-        stop_broker(plan)?;
+        stop_broker(plan, force)?;
     }
     Ok(())
 }
 
-pub(super) fn stop_broker(plan: &ExecutionPlan) -> Result<(), String> {
+pub(super) fn stop_broker(plan: &ExecutionPlan, force: bool) -> Result<(), String> {
     let identity = broker_identity(plan);
     let brokers = discover_brokers(&identity.project, &identity.namespace)?;
     for broker in brokers {
         signal_terminate(broker.pid)
             .map_err(|err| format!("failed to terminate broker pid {}: {err}", broker.pid))?;
-        wait_for_exit(broker.pid)?;
+        wait_for_exit(broker.pid, force)?;
         println!("stopped broker pid={}", broker.pid);
     }
     Ok(())
 }
 
-pub(super) fn wait_for_exit(pid: u32) -> Result<(), String> {
-    if wait_until_exit(pid, Duration::from_millis(500)) {
+pub(super) fn wait_for_exit(pid: u32, force: bool) -> Result<(), String> {
+    if wait_until_exit(pid, Duration::from_secs(2)) {
         return Ok(());
+    }
+    if !force {
+        return Err(format!(
+            "pid {pid} did not exit after graceful stop; rerun with --force to kill it"
+        ));
     }
     force_kill(pid)?;
     if wait_until_exit(pid, Duration::from_secs(2)) {

@@ -13,9 +13,69 @@ The core mechanisms are:
 
 ## Why
 
-`sidecar` came out of a Tauri-adjacent development problem: one local app often needs a few cooperating processes nearby, such as a frontend shell, a backend service, a provider process, or an inspect server. Starting them is easy; keeping their identity, readiness, logs, namespace isolation, status, stop, and reset behavior predictable is the part that tends to spread into ad hoc scripts.
+Local native workloads share one host: PATH, shell environment, credentials,
+filesystem, localhost, ports, IPC paths, logs, caches, and runtime data. Once a
+project has more than one communicating process, that shared space needs a
+machine-readable runtime identity. Without it, dev servers, daemons, UI shells,
+workers, packaged apps, worktrees, release channels, and agent sessions can
+cross wires: wrong endpoints, mixed state, stale pids, ambiguous logs, mistaken
+tests, and unsafe cleanup.
 
-This repository keeps that machinery small and product-neutral. It is not trying to become a general supervisor, service mesh, or deployment system. It is a narrow local tool for projects that need repeatable multi-process instances without baking product-specific meaning into the process manager.
+`sidecar` gives those local processes shallow isolation without space
+isolation. It names workloads, stamps process identity, injects runtime
+endpoints, tracks readiness/status, offers inspect/reset hooks, and keeps
+namespace-scoped runtime state. It deliberately does not care what the process
+does: UI, daemon, provider, worker, dev server, agent, and packaged helper are
+all just native host processes.
+
+The goal is low-friction local communication and cleanup, not product semantics.
+Consumers own the business topology and any business shutdown behavior; sidecar
+owns the product-neutral process facts it can observe.
+
+## When
+
+Use `sidecar` when a local application or toolchain is really a named runtime
+made of several native processes:
+
+- Multiple local workloads need to discover each other through injected
+  endpoints or IPC paths.
+- The same repo may run across dev, packaged, stable, beta, nightly, PR, or
+  worktree contexts on one machine.
+- Human operators and agents may run or validate local runtimes concurrently.
+- A process should remain business-unaware and only consume argv, env, cwd,
+  files, and endpoints.
+- Start, ready, status, inspect, stop, logs, runtime data, and reset need to be
+  scoped by namespace instead of guessed from ports or process names.
+
+Electron and Tauri make this topology obvious, but the need is not tied to
+those stacks. A fully native app can hide the same layered runtime behind one
+language or one launcher. If communicating host processes need identity,
+discovery, lifecycle observation, and namespace-scoped cleanup, `sidecar` is a
+fit.
+
+## Not Fit
+
+Do not use `sidecar` when the real requirement is:
+
+- A truly single-process app with no runtime topology to name, discover,
+  inspect, or reset.
+- Container image builds, pod scheduling, volume/network namespace modeling, or
+  cluster orchestration.
+- Security isolation, permission sandboxing, tenant isolation, or host
+  hardening. Sidecar provides identity and shallow runtime boundaries, not a
+  security boundary.
+- A production process supervisor, monitoring daemon, crash-loop manager, or
+  alerting system.
+- Business-level cleanup guarantees. Sidecar judges lifecycle outcomes by
+  sidecar-owned process facts, especially whether the known pids for the target
+  and namespace are gone.
+
+Forceful cleanup is an opt-in operator shortcut. By default, lifecycle handling
+is signal-first: sidecar signals or invokes the configured stop path, observes
+the pids it created or can identify, and reports the result. If a caller's stop
+entrypoint starts unrelated processes, leaks unstamped children, or performs
+business-specific cleanup incorrectly, that remains the caller's responsibility
+unless those processes are represented through sidecar identity.
 
 ## Install
 
