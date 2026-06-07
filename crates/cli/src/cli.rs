@@ -25,6 +25,7 @@ struct ParsedArgs {
     project_override: Option<String>,
     inspect_timeout_secs: u64,
     reset_all: bool,
+    force: bool,
 }
 
 pub fn version() -> &'static str {
@@ -49,10 +50,10 @@ Commands:
   inspect  <sidecar> <event> [<json-payload>] [--config <path>] [--format text|json] [--inspect-timeout <seconds>]
   start    [--config <path>] [<sidecar>]
   restart  [--config <path>] [<sidecar>]
-  stop     [--config <path>] [<sidecar>]
+  stop     [--config <path>] [--force] [<sidecar>]
   status   [--config <path>] [--format text|json]
   list     [--config <path>] [--format text|json]
-  reset    [--config <path>] [--all]
+  reset    [--config <path>] [--all] [--force]
   update
   help
   version
@@ -64,6 +65,7 @@ Global flags:
   --data-home <path>    override global state/update-cache root
   --format text|json    output format where the command supports it
   --inspect-timeout <s> inspect round-trip timeout in seconds (default: 5)
+  --force               force-kill sidecar-owned pids after graceful stop waits
 
 Model:
   Manifest: [project], optional [app], repeated [[sidecars]], ready/env/inspect
@@ -75,8 +77,9 @@ Model:
   State: <data-home>/state plus <data-home>/projects/<namespace>; see AGENTS.md.
 
 Safety:
-  reset is the compatibility escape hatch: stop stamped processes and remove
-  project state; add --all to also remove global state.
+  stop/reset are signal-first and observe sidecar-owned pids; add --force to
+  kill after graceful waits. reset removes project state; add --all to also
+  remove global state.
   update delegates to the released manager. Dev builds cannot self-update.
 
 Exit shape:
@@ -151,8 +154,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let paths = data_paths_for(&parsed, &state);
             match cmd {
                 "start" => commands::start(&state, &paths, target),
-                "stop" => commands::stop(&state, &paths, target),
-                "restart" => commands::restart(&state, &paths, target),
+                "stop" => commands::stop(&state, &paths, target, parsed.force),
+                "restart" => commands::restart(&state, &paths, target, parsed.force),
                 _ => unreachable!(),
             }
         }
@@ -172,7 +175,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             require_no_extra_args(&parsed, 1, "reset")?;
             let state = load_state(&parsed)?;
             let paths = data_paths_for(&parsed, &state);
-            commands::reset(&state, &paths, parsed.reset_all)
+            commands::reset(&state, &paths, parsed.reset_all, parsed.force)
         }
         _ => Err(format!(
             "unknown command: {}; run `sidecar help`",
@@ -311,6 +314,7 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
     let mut project_override = None;
     let mut inspect_timeout_secs = INSPECT_DEFAULT_TIMEOUT_SECS;
     let mut reset_all = false;
+    let mut force = false;
     let mut args = args.into_iter();
     let _binary = args.next();
 
@@ -342,6 +346,9 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
             }
             "--all" => {
                 reset_all = true;
+            }
+            "--force" => {
+                force = true;
             }
             "--inspect-timeout" => {
                 let value = args
@@ -386,6 +393,7 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
         project_override,
         inspect_timeout_secs,
         reset_all,
+        force,
     })
 }
 
@@ -420,6 +428,7 @@ pub mod __test {
         pub project: Option<String>,
         pub timeout_secs: u64,
         pub reset_all: bool,
+        pub force: bool,
     }
 
     pub fn parse_args(args: Vec<&str>) -> Result<ParseSummary, String> {
@@ -436,6 +445,7 @@ pub mod __test {
             project: parsed.project_override,
             timeout_secs: parsed.inspect_timeout_secs,
             reset_all: parsed.reset_all,
+            force: parsed.force,
         })
     }
 

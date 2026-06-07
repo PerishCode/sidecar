@@ -85,14 +85,16 @@ Precedence: CLI flag > env > manifest. The manifest value becomes a default; CLI
 
 ## Reset Semantics (Escape Hatch)
 
-`sidecar reset --config <path>` is the single escape hatch from any incompatible-change failure mode. It:
+`sidecar reset --config <path>` is the single escape hatch from any incompatible-change failure mode. It is signal-first by default: sidecar sends termination signals to sidecar-owned pids, observes whether they exit, and fails before deleting runtime data if they remain alive. `--force` is the explicit operator shortcut that escalates to force-kill after the graceful wait.
+
+It:
 
 1. Terminates every stamped process and every manifest-recorded target pid in the current namespace.
 2. Terminates every broker process for the current project/namespace.
 3. Removes `<data_home>/projects/<namespace>/` (manifest `data_dir` honored).
 4. With `--all`: also removes `<data_home>/state/` (wipes update cache, etc.).
 
-There is no `--keep-data` or confirm prompt by design — predictability and idempotency are reset's contract. The install root and bin link are out of scope for `reset` (they belong to `manage.sh|ps1 uninstall`). The fully-recovered state is: `sidecar reset --all` → `manage.sh|ps1 uninstall` → reinstall latest → re-author `sidecar.toml` per the latest README.
+There is no `--keep-data` or confirm prompt by design — predictability and idempotency are reset's contract. Forceful cleanup is still opt-in through `--force`; it is an operator convenience, not the native lifecycle contract. The install root and bin link are out of scope for `reset` (they belong to `manage.sh|ps1 uninstall`). The fully-recovered state is: `sidecar reset --all --force` when graceful termination is insufficient → `manage.sh|ps1 uninstall` → reinstall latest → re-author `sidecar.toml` per the latest README.
 
 ## Installer Verbs
 

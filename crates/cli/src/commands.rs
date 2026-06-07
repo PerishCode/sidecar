@@ -64,6 +64,7 @@ pub(crate) fn stop(
     state: &DevState,
     paths: &DataPaths,
     sidecar: Option<&str>,
+    force: bool,
 ) -> Result<(), String> {
     let plan = state.execution_plan();
     let targets = select_targets(&plan, sidecar)?;
@@ -81,7 +82,7 @@ pub(crate) fn stop(
                     target.name, pid
                 )
             })?;
-            wait_for_exit(*pid)?;
+            wait_for_exit(*pid, force)?;
             println!("stopped {} pid={}", target.name, pid);
             stopped_total += 1;
         }
@@ -90,7 +91,7 @@ pub(crate) fn stop(
     if stopped_total == 0 && sidecar.is_none() {
         println!("no sidecars were running");
     }
-    maybe_stop_broker(&plan, paths, sidecar)?;
+    maybe_stop_broker(&plan, paths, sidecar, force)?;
     Ok(())
 }
 
@@ -98,8 +99,9 @@ pub(crate) fn restart(
     state: &DevState,
     paths: &DataPaths,
     sidecar: Option<&str>,
+    force: bool,
 ) -> Result<(), String> {
-    stop(state, paths, sidecar)?;
+    stop(state, paths, sidecar, force)?;
     start(state, paths, sidecar)
 }
 
@@ -136,12 +138,17 @@ pub(crate) fn list(
     )
 }
 
-pub(crate) fn reset(state: &DevState, paths: &DataPaths, all: bool) -> Result<(), String> {
+pub(crate) fn reset(
+    state: &DevState,
+    paths: &DataPaths,
+    all: bool,
+    force: bool,
+) -> Result<(), String> {
     let plan = state.execution_plan();
     for target in &plan.targets {
         for pid in running_pids_for_target(paths, target)? {
             signal_terminate(pid).map_err(|err| format!("failed to terminate pid {pid}: {err}"))?;
-            wait_for_exit(pid)?;
+            wait_for_exit(pid, force)?;
             println!("terminated pid={pid} target={}", target.name);
         }
     }
@@ -153,11 +160,11 @@ pub(crate) fn reset(state: &DevState, paths: &DataPaths, all: bool) -> Result<()
         for hit in &hits {
             signal_terminate(hit.pid)
                 .map_err(|err| format!("failed to terminate pid {}: {err}", hit.pid))?;
-            wait_for_exit(hit.pid)?;
+            wait_for_exit(hit.pid, force)?;
             println!("terminated pid={} cmd={}", hit.pid, hit.command);
         }
     }
-    stop_broker(&plan)?;
+    stop_broker(&plan, force)?;
     remove_dir_if_exists(&paths.project, "project data")?;
     if all {
         remove_dir_if_exists(&paths.state, "global state")?;

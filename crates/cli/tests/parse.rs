@@ -8,6 +8,7 @@ fn help_boundary() {
     assert!(help.contains("doctor   [--config <path>]"));
     assert!(help.contains("inspect  <sidecar> <event> [<json-payload>]"));
     assert!(help.contains("--inspect-timeout <s>"));
+    assert!(help.contains("--force"));
     assert!(help.contains("when omitted, sidecar walks"));
     assert!(help.contains("like docker compose -p"));
     assert!(help.contains("--sidecar-stamp=a=<app>;n=<namespace>;m=<mode>;s=<source>"));
@@ -134,4 +135,16 @@ fn reset_all() {
     .unwrap();
     assert_eq!(parsed.data_home.as_deref(), Some("/var/sidecar"));
     assert!(parsed.reset_all);
+    assert!(!parsed.force);
+}
+
+#[test]
+fn force_flag() {
+    let parsed = cli_test::parse_args(vec![
+        "sidecar", "stop", "api", "--force", "--config", "x.toml",
+    ])
+    .unwrap();
+
+    assert_eq!(parsed.command, vec!["stop", "api"]);
+    assert!(parsed.force);
 }
