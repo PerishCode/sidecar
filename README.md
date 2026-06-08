@@ -95,10 +95,10 @@ to `https://releases.sidecar.perish.uk` as its release asset root. The
 After cloning, initialize the local checkout:
 
 ```sh
-python3 scripts/init.py
+runseal :init
 ```
 
-Local initialization expects `flavor v0.3.3+`, `runseal`, and `uv` to be
+Local initialization expects `flavor v0.3.3+` and `runseal v0.6.0+` to be
 available.
 
 Run the fast local smoke path:

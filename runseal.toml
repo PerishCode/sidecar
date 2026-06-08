@@ -5,6 +5,9 @@ root = ".local"
 type = "env"
 
 [injections.vars]
+RUNSEAL_REPO_LOCAL_DIR = "resource://"
+RUNSEAL_REPO_SECRETS_DIR = "resource://secrets"
+RUNSEAL_REPO_TMP_DIR = "resource://tmp"
 SIDECAR_REPO_LOCAL_DIR = "resource://"
 SIDECAR_REPO_SECRETS_DIR = "resource://secrets"
 SIDECAR_REPO_TMP_DIR = "resource://tmp"

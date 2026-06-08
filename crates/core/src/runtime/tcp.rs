@@ -1,6 +1,8 @@
 //! TCP listener discovery for a process id.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+#[cfg(any(target_os = "linux", windows))]
+use std::net::Ipv6Addr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub fn tcp_listeners_for_pid(pid: u32) -> Result<Vec<SocketAddr>, String> {
     platform_listeners(pid)
