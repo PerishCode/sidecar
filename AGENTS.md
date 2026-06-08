@@ -102,9 +102,10 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 
 ## Repo-local Support
 
-`runseal.toml` and `.runseal/wrappers/` are the repo-local operator entrypoints for support tasks that do not belong in the installable `sidecar` product binary. Local development requires `flavor v0.3.3+`, `runseal`, and `uv`. Current support command:
+`runseal.toml` and `.runseal/wrappers/*.seal` are the repo-local operator entrypoints for support tasks that do not belong in the installable `sidecar` product binary. Local development requires `flavor v0.3.3+` and `runseal v0.6.0+`. Current support commands:
 
 - `runseal :cloudflare` — repo-local Cloudflare support for checking credentials and ensuring exact-path `sidecar.perish.uk/manage.sh|ps1` redirects to the release bucket. Use `manage-ensure-redirect --dry-run` before applying changes.
+- `runseal :init` — idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
 
 ## Common Commands
 
@@ -121,7 +122,7 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 - `crates/cli/`: CLI parsing, lifecycle execution (`start`/`stop`/`restart`/`status`/`list`/`reset`), `inspect <sidecar> <event> [payload]`, output formatting, exit behavior.
 - `manage.sh` and `manage.ps1`: public install/update/uninstall manager entrypoints uploaded as release assets.
 - `docs/`: durable design notes for planned architecture changes, including the TCP broker runtime direction.
-- `scripts/init.py`: idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
+- `.runseal/wrappers/init.seal`: idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
 - `.github/scripts/`: workflow-only release helpers.
 
 ## Standard Workflow
@@ -131,10 +132,10 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 After cloning or when hooks look stale, run:
 
 ```bash
-python3 scripts/init.py
+runseal :init
 ```
 
-The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, flavor self-check, runseal profile, shell syntax checks, a local manager uninstall smoke, Python syntax checks, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
+The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, flavor self-check, runseal profile, `.seal` wrapper syntax checks, shell syntax checks, a local manager uninstall smoke, Python syntax checks for workflow metadata, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
 
 Use `--force` only when intentionally replacing existing non-init hooks; the script backs them up first.
 

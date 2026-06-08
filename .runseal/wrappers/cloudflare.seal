@@ -1,0 +1,302 @@
+print() {
+  printf '%s\n' "$1"
+}
+
+error() {
+  printf '%s\n' "$1" >&2
+}
+
+fail() {
+  error "$1"
+  exit 1
+}
+
+usage() {
+  print "Usage: runseal :cloudflare <command> [args]"
+  print ""
+  print "Commands:"
+  print "  init                      create repo-local .local/secrets/cloudflare.env template"
+  print "  check                     validate repo-local credentials and probe core account APIs"
+  print "  manage-plan               print the desired sidecar manage redirect rule shape"
+  print "  manage-dns-plan           print the desired sidecar.perish.uk DNS record shape"
+  print "  manage-dns-inspect        inspect current sidecar.perish.uk DNS record"
+  print "  manage-ensure-dns         create/update sidecar.perish.uk DNS record (use --dry-run first)"
+  print "  manage-inspect            inspect current dynamic redirect ruleset for manage rules"
+  print "  manage-ensure-redirect    create/update exact-path manage redirects (use --dry-run first)"
+  print "  api <method> <path>       authenticated Cloudflare API call using repo-local token"
+  print ""
+  print "Credentials:"
+  print "  .local/secrets/cloudflare.env"
+}
+
+reject_extra_arg() {
+  if [ -n "$1" ]; then
+    fail "$2"
+  fi
+}
+
+load_manage_config() {
+  zone_name=$(runseal @tool cloudflare config get zone_name)
+  request_host=$(runseal @tool cloudflare config get manage_host)
+  redirect_host=$(runseal @tool cloudflare config get manage_origin_host)
+  prefix=$(runseal @tool cloudflare config get manage_redirect_prefix)
+  token_file="${RUNSEAL_REPO_SECRETS_DIR:-.local/secrets}/cloudflare.env"
+  configured_dns_target=$(sed -n 's/^CLOUDFLARE_MANAGE_DNS_TARGET=//p' "$token_file")
+  if [ -z "$configured_dns_target" ]; then
+    dns_target="$redirect_host"
+  else
+    dns_target="$configured_dns_target"
+  fi
+}
+
+load_zone_id() {
+  zone=$(runseal @tool cloudflare zone get --name "$zone_name")
+  zone_id=$(runseal @tool json get "$zone" .id)
+}
+
+load_manage_redirect_rules() {
+  load_manage_config
+  if [ -z "$prefix" ]; then
+    target_sh="https://$redirect_host/manage.sh"
+    target_ps1="https://$redirect_host/manage.ps1"
+  else
+    target_sh="https://$redirect_host/$prefix/manage.sh"
+    target_ps1="https://$redirect_host/$prefix/manage.ps1"
+  fi
+  rule_sh=$(runseal @tool cloudflare redirect-rule exact --ref sidecar_manage_sh_redirect --description "Redirect sidecar manage.sh to releases bucket asset" --host "$request_host" --path /manage.sh --target-url "$target_sh")
+  rule_ps1=$(runseal @tool cloudflare redirect-rule exact --ref sidecar_manage_ps1_redirect --description "Redirect sidecar manage.ps1 to releases bucket asset" --host "$request_host" --path /manage.ps1 --target-url "$target_ps1")
+}
+
+load_manage_dns_record() {
+  load_manage_config
+  desired_dns=$(printf '{"type":"CNAME","name":"%s","content":"%s","ttl":1,"proxied":true}' "$request_host" "$dns_target")
+}
+
+print_manage_redirect_plan() {
+  pretty_sh=$(runseal @tool json pretty "$rule_sh")
+  pretty_ps1=$(runseal @tool json pretty "$rule_ps1")
+  print "manage redirect plan"
+  print "zone: $zone_name"
+  if [ "$1" = with-zone-id ]; then
+    print "zone id: $zone_id"
+  fi
+  print "request host: $request_host"
+  print "redirect host: $redirect_host"
+  print "phase: http_request_dynamic_redirect"
+  print "rules:"
+  print "$pretty_sh"
+  print "$pretty_ps1"
+}
+
+if [ -z "$1" ]; then
+  usage
+  exit 0
+fi
+
+if [ "$1" = help ]; then
+  usage
+  exit 0
+fi
+
+if [ "$1" = --help ]; then
+  usage
+  exit 0
+fi
+
+case "$1" in
+  init)
+    reject_extra_arg "$2" "cloudflare: init does not accept arguments"
+    local_dir="${RUNSEAL_REPO_LOCAL_DIR:-.local}"
+    secrets_dir="${RUNSEAL_REPO_SECRETS_DIR:-.local/secrets}"
+    tmp_dir="${RUNSEAL_REPO_TMP_DIR:-.local/tmp}"
+    token_file="$secrets_dir/cloudflare.env"
+    runseal @tool fs mkdir "$local_dir" 700
+    runseal @tool fs mkdir "$secrets_dir" 700
+    runseal @tool fs mkdir "$tmp_dir" 700
+    if [ -f "$token_file" ]; then
+      print "exists $token_file"
+    else
+      runseal @tool fs write-base64 "$token_file" IyBSZXBvLWxvY2FsIENsb3VkZmxhcmUgY3JlZGVudGlhbHMgZm9yIHNpZGVjYXIgc3VwcG9ydCBjb21tYW5kcy4KIyBGaWxsIHRoZXNlIHZhbHVlcyBtYW51YWxseS4gVGhpcyBmaWxlIHN0YXlzIGxvY2FsIGFuZCBnaXRpZ25vcmVkLgpDTE9VREZMQVJFX0FDQ09VTlRfSUQ9CkNMT1VERkxBUkVfQVBJX1RPS0VOPQpDTE9VREZMQVJFX1pPTkVfTkFNRT1wZXJpc2gudWsKQ0xPVURGTEFSRV9NQU5BR0VfSE9TVD1zaWRlY2FyLnBlcmlzaC51awpDTE9VREZMQVJFX01BTkFHRV9PUklHSU5fSE9TVD1yZWxlYXNlcy5zaWRlY2FyLnBlcmlzaC51awpDTE9VREZMQVJFX01BTkFHRV9ETlNfVEFSR0VUPXJlbGVhc2VzLnNpZGVjYXIucGVyaXNoLnVrCkNMT1VERkxBUkVfTUFOQUdFX1JFRElSRUNUX1BSRUZJWD1zdGFibGUvbGF0ZXN0Cg==
+      runseal @tool fs chmod "$token_file" 600
+      print "created $token_file"
+    fi
+    ;;
+  check)
+    reject_extra_arg "$2" "cloudflare: check does not accept arguments"
+    load_manage_config
+    account_id=$(runseal @tool cloudflare config get account_id)
+    load_zone_id
+    rulesets=$(runseal @tool cloudflare zone ruleset list --zone-id "$zone_id")
+    ruleset_count=$(runseal @tool json len "$rulesets")
+    zones_payload=$(runseal @tool cloudflare api request GET /zones --query "account.id=$account_id" --query per_page=50)
+    zones=$(runseal @tool json get "$zones_payload" .result)
+    zones_pretty=$(runseal @tool json pretty "$zones")
+    account=$(runseal @tool cloudflare account get --account-id "$account_id")
+    account_name=$(runseal @tool json get "$account" .name)
+    buckets=$(runseal @tool cloudflare account r2 bucket list --account-id "$account_id")
+    buckets_pretty=$(runseal @tool json pretty "$buckets")
+    print "cloudflare check: ok"
+    print "account id: $account_id"
+    print "account name: $account_name"
+    print "manage zone: $zone_name ($zone_id)"
+    print "manage host: $request_host"
+    print "manage origin: $redirect_host"
+    print "manage dns target: $dns_target"
+    print "zone rulesets: $ruleset_count"
+    print "zones:"
+    print "$zones_pretty"
+    print "r2 buckets:"
+    print "$buckets_pretty"
+    ;;
+  manage-plan)
+    reject_extra_arg "$2" "cloudflare: manage-plan does not accept arguments"
+    load_manage_redirect_rules
+    print_manage_redirect_plan
+    ;;
+  manage-dns-plan)
+    reject_extra_arg "$2" "cloudflare: manage-dns-plan does not accept arguments"
+    load_manage_dns_record
+    runseal @tool json pretty "$desired_dns"
+    ;;
+  manage-dns-inspect)
+    reject_extra_arg "$2" "cloudflare: manage-dns-inspect does not accept arguments"
+    load_manage_dns_record
+    load_zone_id
+    records=$(runseal @tool cloudflare zone dns-record list --zone-id "$zone_id" --name "$request_host")
+    if [ "$(runseal @tool json empty "$records")" = true ]; then
+      print "manage dns inspect: no DNS record found for $request_host"
+      exit 0
+    fi
+    record=$(runseal @tool json get "$records" '.[0]')
+    runseal @tool json pretty "$record"
+    ;;
+  manage-ensure-dns)
+    dry_run=false
+    if [ "$2" = --dry-run ]; then
+      dry_run=true
+      if [ -n "$3" ]; then
+        fail "cloudflare: unknown manage-ensure-dns argument: $3"
+      fi
+    else
+      if [ -n "$2" ]; then
+        fail "cloudflare: unknown manage-ensure-dns argument: $2"
+      fi
+    fi
+    load_manage_dns_record
+    load_zone_id
+    records=$(runseal @tool cloudflare zone dns-record list --zone-id "$zone_id" --name "$request_host")
+    if [ "$(runseal @tool json empty "$records")" = true ]; then
+      current=
+    else
+      current=$(runseal @tool json get "$records" '.[0]')
+    fi
+    if [ "$dry_run" = true ]; then
+      desired_pretty=$(runseal @tool json pretty "$desired_dns")
+      if [ -z "$current" ]; then
+        print "{\"zone_id\":\"$zone_id\",\"current\":null,\"desired\":$desired_pretty}"
+      else
+        current_pretty=$(runseal @tool json pretty "$current")
+        print "{\"zone_id\":\"$zone_id\",\"current\":$current_pretty,\"desired\":$desired_pretty}"
+      fi
+      exit 0
+    fi
+    if [ -z "$current" ]; then
+      runseal @tool cloudflare zone dns-record create --zone-id "$zone_id" --json "$desired_dns"
+      print "manage ensure dns: created $request_host"
+    else
+      record_id=$(runseal @tool json get "$current" .id)
+      runseal @tool cloudflare zone dns-record update --zone-id "$zone_id" --record-id "$record_id" --json "$desired_dns"
+      print "manage ensure dns: updated $request_host"
+    fi
+    ;;
+  manage-inspect)
+    reject_extra_arg "$2" "cloudflare: manage-inspect does not accept arguments"
+    load_manage_config
+    load_zone_id
+    rulesets=$(runseal @tool cloudflare zone ruleset list --zone-id "$zone_id")
+    ruleset=$(runseal @tool json find "$rulesets" phase http_request_dynamic_redirect)
+    if [ -z "$ruleset" ]; then
+      print "manage inspect: no http_request_dynamic_redirect zone ruleset found"
+      exit 0
+    fi
+    ruleset_id=$(runseal @tool json get "$ruleset" .id)
+    full_ruleset=$(runseal @tool cloudflare zone ruleset get --zone-id "$zone_id" --ruleset-id "$ruleset_id")
+    ruleset_name=$(runseal @tool json get "$full_ruleset" .name)
+    rules=$(runseal @tool json get "$full_ruleset" .rules)
+    matched=$(runseal @tool json filter "$rules" ref sidecar_manage_sh_redirect sidecar_manage_ps1_redirect)
+    matched_count=$(runseal @tool json len "$matched")
+    print "zone id: $zone_id"
+    print "ruleset id: $ruleset_id"
+    print "ruleset name: $ruleset_name"
+    if [ "$matched_count" = 0 ]; then
+      print "manage inspect: no sidecar manage redirect rules found"
+      exit 0
+    fi
+    pretty=$(runseal @tool json pretty "$matched")
+    print "manage rules:"
+    print "$pretty"
+    ;;
+  manage-ensure-redirect)
+    dry_run=false
+    if [ "$2" = --dry-run ]; then
+      dry_run=true
+      if [ -n "$3" ]; then
+        fail "cloudflare: unknown manage-ensure-redirect argument: $3"
+      fi
+    else
+      if [ -n "$2" ]; then
+        fail "cloudflare: unknown manage-ensure-redirect argument: $2"
+      fi
+    fi
+    load_manage_redirect_rules
+    load_zone_id
+    if [ "$dry_run" = true ]; then
+      print_manage_redirect_plan with-zone-id
+      exit 0
+    fi
+    rulesets=$(runseal @tool cloudflare zone ruleset list --zone-id "$zone_id")
+    ruleset=$(runseal @tool json find "$rulesets" phase http_request_dynamic_redirect)
+    if [ -z "$ruleset" ]; then
+      ruleset=$(runseal @tool cloudflare zone ruleset create --zone-id "$zone_id" --phase http_request_dynamic_redirect --name "Single Redirects ruleset")
+    else
+      ruleset_id=$(runseal @tool json get "$ruleset" .id)
+      ruleset=$(runseal @tool cloudflare zone ruleset get --zone-id "$zone_id" --ruleset-id "$ruleset_id")
+    fi
+    ruleset_id=$(runseal @tool json get "$ruleset" .id)
+    rules=$(runseal @tool json get "$ruleset" .rules)
+    current_sh=$(runseal @tool json find "$rules" ref sidecar_manage_sh_redirect)
+    current_ps1=$(runseal @tool json find "$rules" ref sidecar_manage_ps1_redirect)
+    if [ -z "$current_sh" ]; then
+      runseal @tool cloudflare zone ruleset rule add --zone-id "$zone_id" --ruleset-id "$ruleset_id" --json "$rule_sh"
+      changed_sh="created sidecar_manage_sh_redirect"
+    else
+      rule_id=$(runseal @tool json get "$current_sh" .id)
+      runseal @tool cloudflare zone ruleset rule update --zone-id "$zone_id" --ruleset-id "$ruleset_id" --rule-id "$rule_id" --json "$rule_sh"
+      changed_sh="updated sidecar_manage_sh_redirect"
+    fi
+    if [ -z "$current_ps1" ]; then
+      runseal @tool cloudflare zone ruleset rule add --zone-id "$zone_id" --ruleset-id "$ruleset_id" --json "$rule_ps1"
+      changed_ps1="created sidecar_manage_ps1_redirect"
+    else
+      rule_id=$(runseal @tool json get "$current_ps1" .id)
+      runseal @tool cloudflare zone ruleset rule update --zone-id "$zone_id" --ruleset-id "$ruleset_id" --rule-id "$rule_id" --json "$rule_ps1"
+      changed_ps1="updated sidecar_manage_ps1_redirect"
+    fi
+    print "manage ensure redirect: ok"
+    print "  - $changed_sh"
+    print "  - $changed_ps1"
+    ;;
+  api)
+    if [ -z "$2" ]; then
+      fail "cloudflare: api requires a method"
+    fi
+    if [ -z "$3" ]; then
+      fail "cloudflare: api requires a path"
+    fi
+    shift
+    runseal @tool cloudflare api request "$@"
+    ;;
+  *)
+    fail "cloudflare: unknown command: $1"
+    ;;
+esac
