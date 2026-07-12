@@ -203,7 +203,7 @@ Canonical flag name (consumers must accept and ignore it on their sidecar binari
 --sidecar-stamp=v=1;a=<sidecar.name>;n=<project.namespace>;m=<sidecar.mode>;s=tool%3Asidecar;e=<runtime-endpoint>
 ```
 
-The short keys are `v` (stamp protocol version), `a` (app/workload), `n` (namespace), `m` (mode), `s` (source), and `e` (sidecar runtime endpoint locator). Values are percent-encoded; for example `tool:sidecar` is encoded as `tool%3Asidecar`. Discovery uses only this flag via `ps -axo pid=,command=` on Unix; the implementation is in `crates/core/src/process.rs`.
+The short keys are `v` (stamp protocol version), `a` (app/workload), `n` (namespace), `m` (mode), `s` (source), and `e` (sidecar runtime endpoint locator). Values are percent-encoded; for example `tool:sidecar` is encoded as `tool%3Asidecar`. Discovery uses only this flag via `ps -axo pid=,command=` on Unix and the Windows PowerShell `Win32_Process` query on Windows; the implementation is in `crates/core/src/runtime/process.rs`.
 
 The stamp is the single source of truth for sidecar launch metadata. Do not add env fallbacks or sibling sidecar argv flags for control-plane metadata. Future sidecar launch fields must be encoded inside this stamp contract.
 

@@ -77,6 +77,14 @@ entrypoint starts unrelated processes, leaks unstamped children, or performs
 business-specific cleanup incorrectly, that remains the caller's responsibility
 unless those processes are represented through sidecar identity.
 
+## Host Process Backends
+
+On Unix, Sidecar discovers stamped argv through `ps` and terminates process
+groups with `TERM`, escalating to `KILL` only with `--force`. On Windows, it
+queries `Win32_Process` through the built-in Windows PowerShell host, starts
+targets in dedicated process groups, and uses `CTRL_BREAK_EVENT` for normal
+termination. `--force` escalates to `taskkill /T /F`.
+
 ## Install
 
 Release installation is R2-backed.

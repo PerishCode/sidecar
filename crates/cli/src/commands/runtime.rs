@@ -1,8 +1,8 @@
 use super::render::BrokerRuntimeStatus;
 use serde_json::{Map, Value};
 use sidecar_core::{
-    discover_broker_endpoint, discover_brokers, discover_by_app_namespace, signal_terminate,
-    BrokerIdentity, DataPaths, ExecutionPlan, TargetPlan,
+    discover_broker_endpoint, discover_brokers, discover_by_app_namespace, process_exists,
+    signal_terminate, BrokerIdentity, DataPaths, ExecutionPlan, TargetPlan,
 };
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -355,7 +355,15 @@ pub(super) fn detach_process_group(command: &mut Command) {
         command.process_group(0);
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = command;
     }
@@ -418,10 +426,27 @@ fn force_kill(pid: u32) -> Result<(), String> {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let status = Command::new("taskkill.exe")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|err| format!("taskkill failed: {err}"))?;
+        if status.success() || !process_exists(pid) {
+            Ok(())
+        } else {
+            Err(format!(
+                "taskkill /PID {pid} /T /F exited with status {status}"
+            ))
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
-        Ok(())
+        Err("force-kill is not implemented on this platform".to_string())
     }
 }
 
@@ -436,23 +461,4 @@ fn sanitize_log_part(value: &str) -> String {
             }
         })
         .collect()
-}
-
-fn process_exists(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        Command::new("kill")
-            .arg("-0")
-            .arg(pid.to_string())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    }
-
-    #[cfg(not(unix))]
-    {
-        let _ = pid;
-        false
-    }
 }

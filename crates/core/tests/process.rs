@@ -1,5 +1,8 @@
 use sidecar_core::process::{filter_brokers_for_test, filter_for_test, parse_ps_output};
 
+#[cfg(windows)]
+use sidecar_core::process::parse_windows_process_json;
+
 #[test]
 fn parse_ps() {
     let text =
@@ -14,6 +17,20 @@ fn parse_ps() {
         )
     );
     assert_eq!(parsed[1], (456, "node server.js".into()));
+}
+
+#[cfg(windows)]
+#[test]
+fn parse_windows_process_query() {
+    let text = r#"[{"ProcessId":123,"CommandLine":"cargo run --sidecar-stamp=v=1;a=api;n=dev;m=dev;s=tool%3Asidecar"},{"ProcessId":4,"CommandLine":null}]"#;
+    let parsed = parse_windows_process_json(text).expect("Windows process JSON should parse");
+    assert_eq!(
+        parsed,
+        vec![(
+            123,
+            "cargo run --sidecar-stamp=v=1;a=api;n=dev;m=dev;s=tool%3Asidecar".into()
+        )]
+    );
 }
 
 #[test]

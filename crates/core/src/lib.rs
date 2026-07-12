@@ -28,8 +28,8 @@ pub use runtime::broker::{
 };
 pub use runtime::process;
 pub use runtime::process::{
-    discover_brokers, discover_by_app_namespace, discover_by_namespace, signal_terminate,
-    BrokerProcess, StampedProcess,
+    discover_brokers, discover_by_app_namespace, discover_by_namespace, process_exists,
+    signal_terminate, BrokerProcess, StampedProcess,
 };
 pub use runtime::tcp::tcp_listeners_for_pid;
 pub use socket::{SocketEndpoint, SocketEndpointParseError};
