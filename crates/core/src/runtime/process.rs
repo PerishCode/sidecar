@@ -1,11 +1,17 @@
 //! Cross-platform process discovery via stamp args matching.
 //!
-//! Unix uses `ps -axo pid=,command=`. Windows is not yet implemented.
+//! Unix uses `ps -axo pid=,command=`. Windows queries Win32_Process through
+//! the platform PowerShell host so stamp discovery retains full argv data.
 
 use crate::runtime::broker::read_broker_identity;
 use crate::stamp::read_stamp;
+#[cfg(any(unix, windows))]
+use std::process::Command;
 #[cfg(unix)]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+
+#[cfg(windows)]
+use serde::Deserialize;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StampedProcess {
@@ -126,9 +132,61 @@ fn ps_command_lines() -> Result<Vec<(u32, String)>, String> {
     Ok(parse_ps_output(&stdout))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn ps_command_lines() -> Result<Vec<(u32, String)>, String> {
-    Err("process discovery is not yet implemented on this platform".to_string())
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const QUERY: &str = concat!(
+        "$ErrorActionPreference='Stop';",
+        "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);",
+        "@(Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine)",
+        "| ConvertTo-Json -Compress"
+    );
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            QUERY,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|err| format!("PowerShell process query failed: {err}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "PowerShell process query exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    parse_windows_process_json(&String::from_utf8_lossy(&output.stdout))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn ps_command_lines() -> Result<Vec<(u32, String)>, String> {
+    Err("process discovery is not implemented on this platform".to_string())
+}
+
+#[cfg(windows)]
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct WindowsProcess {
+    process_id: u32,
+    command_line: Option<String>,
+}
+
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn parse_windows_process_json(text: &str) -> Result<Vec<(u32, String)>, String> {
+    let rows: Vec<WindowsProcess> =
+        serde_json::from_str(text.trim_start_matches('\u{feff}').trim())
+            .map_err(|err| format!("PowerShell process query returned invalid JSON: {err}"))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.command_line.map(|line| (row.process_id, line)))
+        .collect())
 }
 
 pub fn parse_ps_output(text: &str) -> Vec<(u32, String)> {
@@ -172,7 +230,59 @@ pub fn signal_terminate(pid: u32) -> Result<(), String> {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn signal_terminate(pid: u32) -> Result<(), String> {
+    use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+
+    if !process_exists(pid) {
+        return Ok(());
+    }
+    if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) } != 0 || !process_exists(pid) {
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to send CTRL_BREAK_EVENT to process group {pid}"
+        ))
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn signal_terminate(_pid: u32) -> Result<(), String> {
-    Err("process termination is not yet implemented on this platform".to_string())
+    Err("process termination is not implemented on this platform".to_string())
+}
+
+#[cfg(unix)]
+pub fn process_exists(pid: u32) -> bool {
+    Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+#[cfg(windows)]
+pub fn process_exists(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return false;
+    }
+    let mut exit_code = 0;
+    let active = unsafe { GetExitCodeProcess(handle, &mut exit_code) } != 0
+        && exit_code == STILL_ACTIVE as u32;
+    unsafe {
+        CloseHandle(handle);
+    }
+    active
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn process_exists(_pid: u32) -> bool {
+    false
 }
