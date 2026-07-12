@@ -150,10 +150,8 @@ fn parse_ttl(raw: &str) -> Option<Duration> {
         (stripped, 60)
     } else if let Some(stripped) = trimmed.strip_suffix('h') {
         (stripped, 3600)
-    } else if let Some(stripped) = trimmed.strip_suffix('d') {
-        (stripped, 86400)
     } else {
-        return None;
+        (trimmed.strip_suffix('d')?, 86400)
     };
     num_str
         .parse::<u64>()
