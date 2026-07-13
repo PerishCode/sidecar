@@ -1,6 +1,3 @@
-//! CLI verb implementations: lifecycle (start/stop/restart/status/list/reset)
-//! and inspect (line-JSON IPC over a sidecar's `inspect_socket`).
-
 mod render;
 mod runtime;
 

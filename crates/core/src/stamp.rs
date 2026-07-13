@@ -1,13 +1,3 @@
-//! Stamp args protocol — a packed identity label injected into a sidecar
-//! process command line so the `sidecar` tool can identify and operate on it
-//! later.
-//!
-//! The canonical flag is
-//! `--sidecar-stamp=v=1;a=<app>;n=<namespace>;m=<mode>;s=<source>;e=<endpoint>`.
-//! Values are percent-encoded. Discovery only relies on this flag (not env
-//! vars), so any consumer that accepts and ignores the canonical flag is
-//! interoperable with the `sidecar` CLI.
-
 pub const STAMP_FLAG: &str = "--sidecar-stamp";
 pub const STAMP_VERSION: u8 = 1;
 
@@ -84,15 +74,7 @@ pub fn decode(value: &str) -> Result<Stamp, String> {
         };
         let decoded = decode_value(raw_value)?;
         match key {
-            "v" if version.is_none() => {
-                let parsed = decoded
-                    .parse::<u8>()
-                    .map_err(|_| "stamp version must be an integer".to_string())?;
-                if parsed != STAMP_VERSION {
-                    return Err(format!("unsupported stamp version {parsed}"));
-                }
-                version = Some(parsed);
-            }
+            "v" if version.is_none() => version = Some(vetted(&decoded)?),
             "a" if app.is_none() => app = Some(decoded),
             "n" if namespace.is_none() => namespace = Some(decoded),
             "m" if mode.is_none() => mode = Some(decoded),
@@ -117,6 +99,16 @@ pub fn decode(value: &str) -> Result<Stamp, String> {
 
 fn required<T>(value: Option<T>, key: &str) -> Result<T, String> {
     value.ok_or_else(|| format!("stamp missing {key:?}"))
+}
+
+fn vetted(decoded: &str) -> Result<u8, String> {
+    let parsed = decoded
+        .parse::<u8>()
+        .map_err(|_| "stamp version must be an integer".to_string())?;
+    if parsed != STAMP_VERSION {
+        return Err(format!("unsupported stamp version {parsed}"));
+    }
+    Ok(parsed)
 }
 
 pub(crate) fn encode_value(value: &str) -> String {

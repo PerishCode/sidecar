@@ -180,7 +180,6 @@ impl SidecarPlan {
         }
     }
 
-    /// Final argv to spawn (sidecar args followed by stamp args).
     pub fn spawn_args(&self) -> Vec<String> {
         let mut argv = self.args.clone();
         argv.extend(self.stamp.args());
@@ -189,7 +188,6 @@ impl SidecarPlan {
 }
 
 impl TargetPlan {
-    /// Final argv to spawn (target args followed by stamp args).
     pub fn spawn_args(&self) -> Vec<String> {
         let mut argv = self.args.clone();
         argv.extend(self.stamp.args());

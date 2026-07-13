@@ -1,5 +1,3 @@
-//! Broker identity and minimal hello protocol for the local TCP runtime.
-
 use crate::stamp::{decode_value, encode_value, DEFAULT_SOURCE};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};

@@ -76,11 +76,13 @@ jobs:
       - name: CLI smoke
         run: cargo run --locked -p cli -- doctor --config examples/minimal.toml
 
-      - name: Install flavor
-        run: curl -fsSL https://flavor.perish.uk/manage.sh | sh -s -- install
+      - name: Install pinned negentropy
+        run: |
+          curl -fsSL https://releases.negentropy.perish.uk/manage.sh | sh -s -- install --channel beta --version $(cat .runseal/negentropy.version) --bin-dir $HOME/.local/bin
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Flavor self-check
-        run: flavor check --root . --config flavor.toml
+      - name: Negentropy
+        run: negentropy --strict .
 
   build:
     needs: [metadata, verify]
