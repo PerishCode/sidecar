@@ -60,7 +60,7 @@ impl State {
             if let Some(ready) = &app.ready {
                 require(&mut diagnostics, "app.ready.role", &ready.role);
             }
-            caution(&mut diagnostics, "app", &app.command, &app.args);
+            warn(&mut diagnostics, "app", &app.command, &app.args);
         } else if self.config.sidecars.is_empty() {
             diagnostics.push(Diagnostic::warning(
                 "app",
@@ -95,7 +95,7 @@ impl State {
             if let Some(ready) = &sidecar.ready {
                 require(&mut diagnostics, format!("{path}.ready.role"), &ready.role);
             }
-            caution(&mut diagnostics, &path, &sidecar.command, &sidecar.args);
+            warn(&mut diagnostics, &path, &sidecar.command, &sidecar.args);
         }
 
         let mut names = HashSet::new();
@@ -126,8 +126,8 @@ fn require(diagnostics: &mut Vec<Diagnostic>, path: impl Into<String>, value: &s
     }
 }
 
-fn caution(diagnostics: &mut Vec<Diagnostic>, path: &str, command: &str, args: &[String]) {
-    if !cargo(command) || !swallows(args) {
+fn warn(diagnostics: &mut Vec<Diagnostic>, path: &str, command: &str, args: &[String]) {
+    if !cargo(command) || !consumes(args) {
         return;
     }
     diagnostics.push(Diagnostic::warning(
@@ -144,7 +144,7 @@ fn cargo(command: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn swallows(args: &[String]) -> bool {
+fn consumes(args: &[String]) -> bool {
     let Some(index) = args.iter().position(|arg| arg == "run") else {
         return false;
     };

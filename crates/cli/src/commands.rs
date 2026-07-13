@@ -60,7 +60,7 @@ impl Session {
                 continue;
             }
             for pid in &pids {
-                process::terminate(*pid).map_err(|err| {
+                process::stop(*pid).map_err(|err| {
                     format!(
                         "failed to terminate sidecar `{}` (pid {}): {err}",
                         target.name, pid
@@ -75,7 +75,10 @@ impl Session {
         if stopped == 0 && sidecar.is_none() {
             println!("no sidecars were running");
         }
-        Broker::new(&plan).sweep(&self.paths, sidecar, force)?;
+        let broker = Broker::new(&plan);
+        if sidecar.is_none() || broker.idle(&self.paths)? {
+            broker.stop(force)?;
+        }
         Ok(())
     }
 
@@ -114,7 +117,7 @@ impl Session {
         let plan = self.state.plan();
         for target in &plan.targets {
             for pid in runtime::running(&self.paths, target)? {
-                process::terminate(pid)
+                process::stop(pid)
                     .map_err(|err| format!("failed to terminate pid {pid}: {err}"))?;
                 runtime::reap(pid, force)?;
                 println!("terminated pid={pid} target={}", target.name);
@@ -126,13 +129,13 @@ impl Session {
             println!("namespace `{}` has no stamped processes", plan.namespace);
         } else {
             for hit in &hits {
-                process::terminate(hit.pid)
+                process::stop(hit.pid)
                     .map_err(|err| format!("failed to terminate pid {}: {err}", hit.pid))?;
                 runtime::reap(hit.pid, force)?;
                 println!("terminated pid={} cmd={}", hit.pid, hit.command);
             }
         }
-        Broker::new(&plan).halt(force)?;
+        Broker::new(&plan).stop(force)?;
         purge(&self.paths.project, "project data")?;
         if all {
             purge(&self.paths.state, "global state")?;

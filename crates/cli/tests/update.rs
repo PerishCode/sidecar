@@ -49,7 +49,7 @@ fn dev() {
 }
 
 #[test]
-fn muted() {
+fn env() {
     let key = "SIDECAR_NO_UPDATE_CHECK";
     let prev = std::env::var(key).ok();
     std::env::set_var(key, "1");
