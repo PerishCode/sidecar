@@ -153,7 +153,7 @@ pub fn parse(text: &str) -> Vec<(u32, String)> {
         .collect()
 }
 
-pub fn terminate(pid: u32) -> Result<(), String> {
+pub fn stop(pid: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
         let group = Command::new("kill")

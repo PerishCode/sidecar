@@ -98,23 +98,11 @@ impl<'a> Broker<'a> {
         })
     }
 
-    pub(crate) fn sweep(
-        &self,
-        paths: &Paths,
-        sidecar: Option<&str>,
-        force: bool,
-    ) -> Result<(), String> {
-        if sidecar.is_none() || self.active(paths)? == 0 {
-            self.halt(force)?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn halt(&self, force: bool) -> Result<(), String> {
+    pub(crate) fn stop(&self, force: bool) -> Result<(), String> {
         let identity = self.identity();
         let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
         for hit in brokers {
-            process::terminate(hit.pid)
+            process::stop(hit.pid)
                 .map_err(|err| format!("failed to terminate broker pid {}: {err}", hit.pid))?;
             reap(hit.pid, force)?;
             println!("stopped broker pid={}", hit.pid);
@@ -122,14 +110,13 @@ impl<'a> Broker<'a> {
         Ok(())
     }
 
-    fn active(&self, paths: &Paths) -> Result<usize, String> {
-        let mut count = 0;
+    pub(crate) fn idle(&self, paths: &Paths) -> Result<bool, String> {
         for target in &self.plan.targets {
             if !running(paths, target)?.is_empty() {
-                count += 1;
+                return Ok(false);
             }
         }
-        Ok(count)
+        Ok(true)
     }
 }
 
@@ -410,14 +397,13 @@ fn wait(pid: u32, timeout: Duration) -> bool {
 fn kill(pid: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
-        let group = format!("-{pid}");
-        let swept = Command::new("kill")
-            .args(["-KILL", "--", &group])
+        let group = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{pid}")])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .map_err(|err| format!("kill failed: {err}"))?;
-        if swept.success() {
+        if group.success() {
             return Ok(());
         }
         if !process::exists(pid) {
@@ -434,7 +420,7 @@ fn kill(pid: u32) -> Result<(), String> {
             Ok(())
         } else {
             Err(format!(
-                "kill -KILL -{pid} exited with status {swept}; kill -KILL {pid} exited with status {status}"
+                "kill -KILL -{pid} exited with status {group}; kill -KILL {pid} exited with status {status}"
             ))
         }
     }
