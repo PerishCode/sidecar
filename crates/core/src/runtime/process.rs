@@ -153,86 +153,92 @@ pub fn parse(text: &str) -> Vec<(u32, String)> {
         .collect()
 }
 
-#[cfg(unix)]
 pub fn terminate(pid: u32) -> Result<(), String> {
-    let group = Command::new("kill")
-        .args(["-TERM", "--", &format!("-{pid}")])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|err| format!("kill failed: {err}"))?;
-    if group.success() {
-        return Ok(());
+    #[cfg(unix)]
+    {
+        let group = Command::new("kill")
+            .args(["-TERM", "--", &format!("-{pid}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|err| format!("kill failed: {err}"))?;
+        if group.success() {
+            return Ok(());
+        }
+
+        let status = Command::new("kill")
+            .args(["-TERM", "--", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|err| format!("kill failed: {err}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "kill -TERM -{pid} exited with status {group}; kill -TERM {pid} exited with status {status}"
+            ))
+        }
     }
 
-    let status = Command::new("kill")
-        .args(["-TERM", "--", &pid.to_string()])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|err| format!("kill failed: {err}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "kill -TERM -{pid} exited with status {group}; kill -TERM {pid} exited with status {status}"
-        ))
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
+
+        if !exists(pid) {
+            return Ok(());
+        }
+        if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) } != 0 || !exists(pid) {
+            Ok(())
+        } else {
+            Err(format!(
+                "failed to send CTRL_BREAK_EVENT to process group {pid}"
+            ))
+        }
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+        Err("process termination is not implemented on this platform".to_string())
     }
 }
 
-#[cfg(windows)]
-pub fn terminate(pid: u32) -> Result<(), String> {
-    use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
-
-    if !exists(pid) {
-        return Ok(());
-    }
-    if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) } != 0 || !exists(pid) {
-        Ok(())
-    } else {
-        Err(format!(
-            "failed to send CTRL_BREAK_EVENT to process group {pid}"
-        ))
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-pub fn terminate(_pid: u32) -> Result<(), String> {
-    Err("process termination is not implemented on this platform".to_string())
-}
-
-#[cfg(unix)]
 pub fn exists(pid: u32) -> bool {
-    Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-#[cfg(windows)]
-pub fn exists(pid: u32) -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle.is_null() {
-        return false;
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .arg("-0")
+            .arg(pid.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
     }
-    let mut code = 0;
-    let active =
-        unsafe { GetExitCodeProcess(handle, &mut code) } != 0 && code == STILL_ACTIVE as u32;
-    unsafe {
-        CloseHandle(handle);
-    }
-    active
-}
 
-#[cfg(not(any(unix, windows)))]
-pub fn exists(_pid: u32) -> bool {
-    false
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        let mut code = 0;
+        let active =
+            unsafe { GetExitCodeProcess(handle, &mut code) } != 0 && code == STILL_ACTIVE as u32;
+        unsafe {
+            CloseHandle(handle);
+        }
+        active
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = pid;
+        false
+    }
 }

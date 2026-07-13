@@ -161,32 +161,25 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         "inspect" => inspect(&parsed),
         "start" | "stop" | "restart" => {
             let target = parsed.target(cmd)?;
-            let state = parsed.state()?;
-            let paths = parsed.paths(&state);
+            let session = parsed.session()?;
             match cmd {
-                "start" => commands::start(&state, &paths, target),
-                "stop" => commands::stop(&state, &paths, target, parsed.force),
-                "restart" => commands::restart(&state, &paths, target, parsed.force),
+                "start" => session.start(target),
+                "stop" => session.stop(target, parsed.force),
+                "restart" => session.restart(target, parsed.force),
                 _ => unreachable!(),
             }
         }
         "status" => {
             parsed.exact(1, "status")?;
-            let state = parsed.state()?;
-            let paths = parsed.paths(&state);
-            commands::status(&state, &paths, parsed.format)
+            parsed.session()?.status(parsed.format)
         }
         "list" => {
             parsed.exact(1, "list")?;
-            let state = parsed.state()?;
-            let paths = parsed.paths(&state);
-            commands::list(&state, &paths, parsed.format)
+            parsed.session()?.list(parsed.format)
         }
         "reset" => {
             parsed.exact(1, "reset")?;
-            let state = parsed.state()?;
-            let paths = parsed.paths(&state);
-            commands::reset(&state, &paths, parsed.all, parsed.force)
+            parsed.session()?.reset(parsed.all, parsed.force)
         }
         _ => Err(format!(
             "unknown command: {}; run `sidecar help`",
@@ -221,16 +214,14 @@ fn inspect(parsed: &Args) -> Result<(), String> {
             parsed.command[4..].join(" ")
         )),
         _ => {
-            let state = parsed.state()?;
-            let payload = parsed.command.get(3).map(String::as_str);
-            commands::inspect(
-                &state,
-                &parsed.command[1],
-                &parsed.command[2],
-                payload,
-                Duration::from_secs(parsed.timeout),
-                parsed.format,
-            )
+            let session = parsed.session()?;
+            let probe = commands::Probe {
+                sidecar: &parsed.command[1],
+                event: &parsed.command[2],
+                payload: parsed.command.get(3).map(String::as_str),
+                timeout: Duration::from_secs(parsed.timeout),
+            };
+            session.inspect(&probe, parsed.format)
         }
     }
 }
@@ -270,6 +261,12 @@ impl Args {
             state.config.project.namespace = ns;
         }
         Ok(state)
+    }
+
+    fn session(&self) -> Result<commands::Session, String> {
+        let state = self.state()?;
+        let paths = self.paths(&state);
+        Ok(commands::Session { state, paths })
     }
 
     fn paths(&self, state: &State) -> Paths {

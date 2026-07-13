@@ -21,6 +21,118 @@ pub(crate) struct Ready {
     pub(crate) instance: Option<String>,
 }
 
+pub(crate) struct Launch {
+    pub(crate) pid: u32,
+    pub(crate) ready: Option<Ready>,
+    pub(crate) log: std::path::PathBuf,
+}
+
+pub(crate) struct Broker<'a> {
+    plan: &'a Plan,
+}
+
+impl<'a> Broker<'a> {
+    pub(crate) fn new(plan: &'a Plan) -> Self {
+        Self { plan }
+    }
+
+    fn identity(&self) -> broker::Identity {
+        broker::Identity::new(&self.plan.project, &self.plan.namespace)
+    }
+
+    pub(crate) fn ensure(&self) -> Result<String, String> {
+        let identity = self.identity();
+        if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
+            return Ok(format!("tcp://{addr}"));
+        }
+
+        let exe = std::env::current_exe()
+            .map_err(|err| format!("failed to resolve sidecar exe: {err}"))?;
+        let path = std::env::temp_dir().join(format!(
+            "sidecar-broker-{}-{}.log",
+            sanitize(&identity.project),
+            sanitize(&identity.namespace)
+        ));
+        let log = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
+        let stderr = log
+            .try_clone()
+            .map_err(|err| format!("failed to clone {}: {err}", path.display()))?;
+        let mut command = Command::new(exe);
+        command
+            .args(["runtime", "serve", &identity.project, &identity.namespace])
+            .args(identity.args())
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(stderr));
+        detach(&mut command);
+        let child = command
+            .spawn()
+            .map_err(|err| format!("failed to spawn broker: {err}"))?;
+        let pid = child.id();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
+                println!("broker runtime pid={pid} endpoint=tcp://{addr}");
+                return Ok(format!("tcp://{addr}"));
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        Err(format!(
+            "timed out waiting for broker runtime pid={pid}; see {}",
+            path.display()
+        ))
+    }
+
+    pub(crate) fn status(&self) -> Result<Status, String> {
+        let identity = self.identity();
+        let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
+        let endpoint = identity.endpoint(Duration::from_millis(200))?;
+        Ok(Status {
+            pids: brokers.into_iter().map(|broker| broker.pid).collect(),
+            endpoint: endpoint.map(|addr| format!("tcp://{addr}")),
+        })
+    }
+
+    pub(crate) fn sweep(
+        &self,
+        paths: &Paths,
+        sidecar: Option<&str>,
+        force: bool,
+    ) -> Result<(), String> {
+        if sidecar.is_none() || self.active(paths)? == 0 {
+            self.halt(force)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn halt(&self, force: bool) -> Result<(), String> {
+        let identity = self.identity();
+        let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
+        for hit in brokers {
+            process::terminate(hit.pid)
+                .map_err(|err| format!("failed to terminate broker pid {}: {err}", hit.pid))?;
+            reap(hit.pid, force)?;
+            println!("stopped broker pid={}", hit.pid);
+        }
+        Ok(())
+    }
+
+    fn active(&self, paths: &Paths) -> Result<usize, String> {
+        let mut count = 0;
+        for target in &self.plan.targets {
+            if !running(paths, target)?.is_empty() {
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Chain {
     ready: BTreeMap<String, Ready>,
@@ -167,12 +279,12 @@ fn scan(log: &Path, expected: &str) -> Result<Option<Ready>, String> {
 }
 
 pub(crate) mod state {
-    use super::Ready;
+    use super::Launch;
     use serde_json::{Map, Value};
     use sidecar_core::plan::Target;
     use sidecar_core::Paths;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     fn path(paths: &Paths) -> PathBuf {
         paths.project.join("targets.json")
@@ -196,25 +308,19 @@ pub(crate) mod state {
         fs::write(&path, text).map_err(|err| format!("failed to write {}: {err}", path.display()))
     }
 
-    pub(crate) fn record(
-        paths: &Paths,
-        target: &Target,
-        pid: u32,
-        ready: Option<&Ready>,
-        log: &Path,
-    ) -> Result<(), String> {
+    pub(crate) fn record(paths: &Paths, target: &Target, launch: &Launch) -> Result<(), String> {
         let mut state = load(paths)?;
         state.insert(
             target.name.clone(),
             serde_json::json!({
-                "pid": pid,
+                "pid": launch.pid,
                 "app": target.stamp.app,
                 "namespace": target.stamp.namespace,
                 "mode": target.stamp.mode,
                 "source": target.stamp.source,
                 "inspectSocket": target.socket,
-                "logPath": log.display().to_string(),
-                "ready": ready.map(|ready| serde_json::json!({
+                "logPath": launch.log.display().to_string(),
+                "ready": launch.ready.as_ref().map(|ready| serde_json::json!({
                     "role": ready.role,
                     "endpoint": ready.endpoint,
                     "runtimeEndpoint": ready.runtime,
@@ -253,88 +359,6 @@ pub(crate) fn running(paths: &Paths, target: &Target) -> Result<Vec<u32>, String
     Ok(pids)
 }
 
-pub(crate) fn ensure(plan: &Plan) -> Result<String, String> {
-    let identity = identity(plan);
-    if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
-        return Ok(format!("tcp://{addr}"));
-    }
-
-    let exe =
-        std::env::current_exe().map_err(|err| format!("failed to resolve sidecar exe: {err}"))?;
-    let path = std::env::temp_dir().join(format!(
-        "sidecar-broker-{}-{}.log",
-        sanitize(&identity.project),
-        sanitize(&identity.namespace)
-    ));
-    let log = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&path)
-        .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
-    let stderr = log
-        .try_clone()
-        .map_err(|err| format!("failed to clone {}: {err}", path.display()))?;
-    let mut command = Command::new(exe);
-    command
-        .args(["runtime", "serve", &identity.project, &identity.namespace])
-        .args(identity.args())
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(stderr));
-    detach(&mut command);
-    let child = command
-        .spawn()
-        .map_err(|err| format!("failed to spawn broker: {err}"))?;
-    let pid = child.id();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
-            println!("broker runtime pid={pid} endpoint=tcp://{addr}");
-            return Ok(format!("tcp://{addr}"));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    Err(format!(
-        "timed out waiting for broker runtime pid={pid}; see {}",
-        path.display()
-    ))
-}
-
-pub(crate) fn status(plan: &Plan) -> Result<Status, String> {
-    let identity = identity(plan);
-    let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
-    let endpoint = identity.endpoint(Duration::from_millis(200))?;
-    Ok(Status {
-        pids: brokers.into_iter().map(|broker| broker.pid).collect(),
-        endpoint: endpoint.map(|addr| format!("tcp://{addr}")),
-    })
-}
-
-pub(crate) fn sweep(
-    plan: &Plan,
-    paths: &Paths,
-    sidecar: Option<&str>,
-    force: bool,
-) -> Result<(), String> {
-    if sidecar.is_none() || active(plan, paths)? == 0 {
-        halt(plan, force)?;
-    }
-    Ok(())
-}
-
-pub(crate) fn halt(plan: &Plan, force: bool) -> Result<(), String> {
-    let identity = identity(plan);
-    let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
-    for hit in brokers {
-        process::terminate(hit.pid)
-            .map_err(|err| format!("failed to terminate broker pid {}: {err}", hit.pid))?;
-        reap(hit.pid, force)?;
-        println!("stopped broker pid={}", hit.pid);
-    }
-    Ok(())
-}
-
 pub(crate) fn reap(pid: u32, force: bool) -> Result<(), String> {
     if wait(pid, Duration::from_secs(2)) {
         return Ok(());
@@ -370,20 +394,6 @@ pub(crate) fn detach(command: &mut Command) {
     {
         let _ = command;
     }
-}
-
-fn identity(plan: &Plan) -> broker::Identity {
-    broker::Identity::new(&plan.project, &plan.namespace)
-}
-
-fn active(plan: &Plan, paths: &Paths) -> Result<usize, String> {
-    let mut count = 0;
-    for target in &plan.targets {
-        if !running(paths, target)?.is_empty() {
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 fn wait(pid: u32, timeout: Duration) -> bool {

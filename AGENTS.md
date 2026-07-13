@@ -102,10 +102,20 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 
 ## Repo-local Support
 
-`runseal.toml` and `.runseal/wrappers/*.seal` are the repo-local operator entrypoints for support tasks that do not belong in the installable `sidecar` product binary. Local development requires `flavor v0.3.3+` and `runseal v0.6.0+`. Current support commands:
+`runseal.toml` and `.runseal/wrappers/*` are the repo-local operator entrypoints for support tasks that do not belong in the installable `sidecar` product binary. The wrappers are Deno TypeScript run through `runseal`; local development requires `runseal`, `deno`, and a `negentropy` binary matching the pin in `.runseal/negentropy.version`. Current support commands:
 
+- `runseal :init` — idempotent post-clone validator. It quick-fails on missing required tools (git, deno, cargo, gh, runseal, the pinned negentropy) or repository entrypoints, and exits cleanly only when the checkout is ready for development.
+- `runseal :guard` — the full local gate: fmt, clippy, tests, `deno fmt` / `deno check` over `.runseal`, and the pinned `negentropy --strict .`.
+- `runseal :land` — lands the current clean topic branch: push, create or reuse the PR, await the checks on the exact pushed head SHA, squash-merge pinned to that SHA, sync `main`, delete the branch. `--dry-run` prints the plan without touching git or GitHub.
 - `runseal :cloudflare` — repo-local Cloudflare support for checking credentials and ensuring exact-path `sidecar.perish.uk/manage.sh|ps1` redirects to the release bucket. Use `manage-ensure-redirect --dry-run` before applying changes.
-- `runseal :init` — idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
+
+## Constitution
+
+`negentropy` is the structure checker for this repository; `negentropy --strict .` must print `clean` before anything lands. Its configuration is repo-owned:
+
+- `negentropy.toml` — scan roots (`crates/**/*.rs`, `docs/**/*.md`), module roots, block/path depth limits, the comment ban, the single-word identifier rule, and the test-syntax grant for `crates/*/tests`.
+- `vocabulary.toml` — registered compound atoms; while it is empty, every identifier must stay a single word.
+- `.runseal/negentropy.version` — the pinned checker version (currently `v0.1.0-beta.9`). `runseal :init`, `runseal :guard`, and CI all verify the installed binary against this pin and refuse a mismatch.
 
 ## Common Commands
 
@@ -114,7 +124,8 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 - Clippy: `cargo clippy --locked --workspace --all-targets -- -D warnings`
 - CLI smoke: `cargo run --locked -p cli -- doctor --config examples/minimal.toml`
 - Plan: `cargo run --locked -p cli -- plan --config examples/minimal.toml --format json`
-- Flavor self-check: `flavor check --root . --config flavor.toml`
+- Constitution check: `negentropy --strict .`
+- Full gate: `runseal :guard`
 
 ## Repository Shape
 
@@ -122,22 +133,21 @@ Root `manage.{sh,ps1}` accept exactly: `install`, `update`, `uninstall`. There i
 - `crates/cli/`: CLI parsing, lifecycle execution (`start`/`stop`/`restart`/`status`/`list`/`reset`), `inspect <sidecar> <event> [payload]`, output formatting, exit behavior.
 - `manage.sh` and `manage.ps1`: public install/update/uninstall manager entrypoints uploaded as release assets.
 - `docs/`: durable design notes for planned architecture changes, including the TCP broker runtime direction.
-- `.runseal/wrappers/init.seal`: idempotent post-clone initializer. It quick-fails on missing required tools or repository entrypoints, installs local hooks, and exits cleanly only when the checkout is ready for development.
+- `.runseal/`: runseal wrapper entrypoints (`guard.ts`, `init.ts`, `land.ts`, `cloudflare.seal`), the shared wrapper `lib/`, and the `negentropy.version` pin.
+- `negentropy.toml` and `vocabulary.toml`: the constitution the `negentropy` checker enforces over `crates/` and `docs/`.
 - `.github/scripts/`: workflow-only release helpers.
 
 ## Standard Workflow
 
 ### Initialize
 
-After cloning or when hooks look stale, run:
+After cloning or when the toolchain looks stale, run:
 
 ```bash
 runseal :init
 ```
 
-The generated hooks contain their concrete actions directly. The pre-commit hook currently runs fmt, cargo check, CLI smoke, flavor self-check, runseal profile, `.seal` wrapper syntax checks, shell syntax checks, a local manager uninstall smoke, Python syntax checks for workflow metadata, and PowerShell syntax checks when `pwsh` is available. The commit-msg hook validates the commit subject shape.
-
-Use `--force` only when intentionally replacing existing non-init hooks; the script backs them up first.
+It validates the required tools (including a `negentropy` matching `.runseal/negentropy.version`) and the repository entrypoints, then exits. It installs nothing: there are no local git hooks. The gates are `runseal :guard` before landing and the `guard` workflow in CI.
 
 ### Branch Names
 
@@ -154,17 +164,24 @@ Subject: `<area>: <imperative summary>` on one line, ideally <= 72 characters. T
 
 ### Pre-PR Checks
 
-Every PR must pass these commands before review:
+Every PR must pass the guard before review:
+
+```bash
+runseal :guard
+```
+
+It runs, in order:
 
 ```bash
 cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
-cargo run --locked -p cli -- doctor --config examples/minimal.toml
-flavor check --root . --config flavor.toml
+deno fmt --check .runseal
+deno check --config .runseal/deno.json --lock .runseal/deno.lock --frozen=true .runseal/wrappers/*.ts
+negentropy --strict .
 ```
 
-CI reruns them across Linux, Windows, and macOS.
+CI reruns the same wrapper: `.github/workflows/guard.yml` installs the pinned negentropy release, then executes `.runseal/wrappers/guard.ts` on every PR and every push to `main`.
 
 ### PR Descriptions
 
@@ -185,15 +202,15 @@ Add `## Compatibility` when a manifest field, CLI flag, protocol field, output s
 
 ### Merging
 
-`main` is PR-only and protected by the repository ruleset `main guard`. The required merge gate is the `guard` matrix: `guard (ubuntu-latest)`, `guard (windows-latest)`, and `guard (macos-latest)`. Required approvals are intentionally `0`.
+`main` is PR-only and protected by the repository ruleset `main guard`. The required merge gate is the `guard` check from `.github/workflows/guard.yml` (currently `guard (ubuntu-latest)`). Required approvals are intentionally `0`.
 
-After opening a non-draft PR, default to enabling repository auto-merge:
+From a clean topic branch, default to landing with:
 
 ```bash
-gh pr merge <num> --auto --squash --delete-branch
+runseal :land
 ```
 
-If auto-merge cannot be enabled, wait for green checks and fall back to the smallest equivalent manual command, usually `gh pr merge <num> --squash --delete-branch`.
+It pushes the branch, creates or reuses the PR, records the exact pushed head SHA, polls the GitHub check-runs on that SHA until every one succeeds, squash-merges with `--match-head-commit <sha>` so only the audited commit can land, syncs `main`, and deletes the branch. If `:land` is unavailable, wait for green checks and fall back to `gh pr merge <num> --squash --delete-branch`.
 
 ## Stamp args protocol
 
