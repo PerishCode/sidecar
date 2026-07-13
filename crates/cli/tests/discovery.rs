@@ -5,7 +5,7 @@ fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_sidecar"))
 }
 
-fn temp_root(name: &str) -> std::path::PathBuf {
+fn scratch(name: &str) -> std::path::PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock should be after epoch")
@@ -15,7 +15,7 @@ fn temp_root(name: &str) -> std::path::PathBuf {
     root
 }
 
-fn minimal_config(project: &str) -> String {
+fn manifest(project: &str) -> String {
     format!(
         r#"[project]
 name = "{project}"
@@ -33,13 +33,12 @@ mode = "dev"
 }
 
 #[test]
-fn discovers_sidecar_toml() {
-    let root = temp_root("discovers");
+fn discovers() {
+    let root = scratch("discovers");
     let nested = root.join("a/b");
     std::fs::create_dir_all(&nested).expect("nested dir should be created");
     let config = root.join("sidecar.toml");
-    std::fs::write(&config, minimal_config("discovered-project"))
-        .expect("config should be written");
+    std::fs::write(&config, manifest("discovered-project")).expect("config should be written");
 
     let output = bin()
         .current_dir(&nested)
@@ -63,17 +62,14 @@ fn discovers_sidecar_toml() {
 }
 
 #[test]
-fn explicit_config_wins() {
-    let root = temp_root("explicit");
+fn explicit() {
+    let root = scratch("explicit");
     let nested = root.join("nested");
     let explicit = root.join("explicit.toml");
     std::fs::create_dir_all(&nested).expect("nested dir should be created");
-    std::fs::write(
-        root.join("sidecar.toml"),
-        minimal_config("discovered-project"),
-    )
-    .expect("discovered config should be written");
-    std::fs::write(&explicit, minimal_config("explicit-project"))
+    std::fs::write(root.join("sidecar.toml"), manifest("discovered-project"))
+        .expect("discovered config should be written");
+    std::fs::write(&explicit, manifest("explicit-project"))
         .expect("explicit config should be written");
 
     let output = bin()
@@ -95,8 +91,8 @@ fn explicit_config_wins() {
 }
 
 #[test]
-fn missing_config_reports_search() {
-    let root = temp_root("missing");
+fn missing() {
+    let root = scratch("missing");
     let nested = root.join("nested");
     std::fs::create_dir_all(&nested).expect("nested dir should be created");
 

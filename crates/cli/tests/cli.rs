@@ -1,7 +1,7 @@
 use std::process::Command;
 
 #[test]
-fn doctor_accepts_minimal_config() {
+fn doctor() {
     let output = Command::new(env!("CARGO_BIN_EXE_sidecar"))
         .args(["doctor", "--config", "../../examples/minimal.toml"])
         .output()
@@ -16,7 +16,7 @@ fn doctor_accepts_minimal_config() {
 }
 
 #[test]
-fn plan_outputs_project() {
+fn plan() {
     let output = Command::new(env!("CARGO_BIN_EXE_sidecar"))
         .args([
             "plan",

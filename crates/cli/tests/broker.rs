@@ -1,8 +1,8 @@
-use sidecar_cli::{broker_runtime_test, cli_test};
+use sidecar_cli::test::{broker, cli};
 
 #[test]
-fn parse_runtime_serve() {
-    let parsed = cli_test::parse_args(vec![
+fn serve() {
+    let parsed = cli::parse(vec![
         "sidecar",
         "runtime",
         "serve",
@@ -25,8 +25,8 @@ fn parse_runtime_serve() {
 }
 
 #[test]
-fn broker_hello_round_trip() {
-    let response = broker_runtime_test::round_trip(
+fn hello() {
+    let response = broker::exchange(
         r#"{"kind":"hello","protocol":1,"project":"sidecar","namespace":"default"}"#,
     )
     .unwrap();
@@ -38,8 +38,8 @@ fn broker_hello_round_trip() {
 }
 
 #[test]
-fn hello_wrong_namespace() {
-    let response = broker_runtime_test::round_trip(
+fn mismatch() {
+    let response = broker::exchange(
         r#"{"kind":"hello","protocol":1,"project":"sidecar","namespace":"other"}"#,
     )
     .unwrap();

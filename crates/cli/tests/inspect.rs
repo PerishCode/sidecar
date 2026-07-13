@@ -9,7 +9,7 @@ fn bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_sidecar"))
 }
 
-fn temp_root(name: &str) -> std::path::PathBuf {
+fn scratch(name: &str) -> std::path::PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock should be after epoch")
@@ -20,7 +20,7 @@ fn temp_root(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn omitted_payload_is_object() {
+fn omitted() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("tcp listener should bind");
     let address = listener.local_addr().expect("listener address");
     let (tx, rx) = mpsc::channel();
@@ -50,7 +50,7 @@ fn omitted_payload_is_object() {
         .expect("inspect response should write");
     });
 
-    let root = temp_root("inspect-payload");
+    let root = scratch("inspect-payload");
     let config = root.join("sidecar.toml");
     std::fs::write(
         &config,
