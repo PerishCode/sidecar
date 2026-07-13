@@ -1,9 +1,7 @@
 use super::render::BrokerRuntimeStatus;
 use serde_json::{Map, Value};
-use sidecar_core::{
-    discover_broker_endpoint, discover_brokers, discover_by_app_namespace, process_exists,
-    signal_terminate, BrokerIdentity, DataPaths, ExecutionPlan, TargetPlan,
-};
+use sidecar_core::plan::{Plan, Target};
+use sidecar_core::{broker, process, Paths};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -24,7 +22,7 @@ pub(super) struct RuntimeChain {
 }
 
 impl RuntimeChain {
-    pub(super) fn from_state(paths: &DataPaths, plan: &ExecutionPlan) -> Result<Self, String> {
+    pub(super) fn from_state(paths: &Paths, plan: &Plan) -> Result<Self, String> {
         let state = load_target_state(paths)?;
         let mut chain = Self::default();
         for target in &plan.targets {
@@ -48,10 +46,10 @@ impl RuntimeChain {
 
     pub(super) fn resolve_inherits(
         &self,
-        target: &TargetPlan,
+        target: &Target,
     ) -> Result<Vec<(String, String)>, String> {
         let mut env = Vec::new();
-        for binding in &target.inherits_env {
+        for binding in &target.inherits {
             let Some((source, field)) = binding.from.split_once('.') else {
                 return Err(format!(
                     "invalid inherits_env source {:?}; expected '<target>.<field>'",
@@ -169,11 +167,11 @@ fn read_ready_from_log(
     Ok(None)
 }
 
-fn target_state_path(paths: &DataPaths) -> PathBuf {
+fn target_state_path(paths: &Paths) -> PathBuf {
     paths.project.join("targets.json")
 }
 
-pub(super) fn load_target_state(paths: &DataPaths) -> Result<Map<String, Value>, String> {
+pub(super) fn load_target_state(paths: &Paths) -> Result<Map<String, Value>, String> {
     let path = target_state_path(paths);
     let Ok(text) = fs::read_to_string(&path) else {
         return Ok(Map::new());
@@ -183,7 +181,7 @@ pub(super) fn load_target_state(paths: &DataPaths) -> Result<Map<String, Value>,
     Ok(value.as_object().cloned().unwrap_or_default())
 }
 
-fn save_target_state(paths: &DataPaths, state: &Map<String, Value>) -> Result<(), String> {
+fn save_target_state(paths: &Paths, state: &Map<String, Value>) -> Result<(), String> {
     fs::create_dir_all(&paths.project)
         .map_err(|err| format!("failed to create {}: {err}", paths.project.display()))?;
     let path = target_state_path(paths);
@@ -192,8 +190,8 @@ fn save_target_state(paths: &DataPaths, state: &Map<String, Value>) -> Result<()
 }
 
 pub(super) fn record_target_state(
-    paths: &DataPaths,
-    target: &TargetPlan,
+    paths: &Paths,
+    target: &Target,
     pid: u32,
     ready: Option<&ReadySummary>,
     log_path: &Path,
@@ -207,7 +205,7 @@ pub(super) fn record_target_state(
             "namespace": target.stamp.namespace,
             "mode": target.stamp.mode,
             "source": target.stamp.source,
-            "inspectSocket": target.inspect_socket,
+            "inspectSocket": target.socket,
             "logPath": log_path.display().to_string(),
             "ready": ready.map(|ready| serde_json::json!({
                 "role": ready.role,
@@ -220,27 +218,24 @@ pub(super) fn record_target_state(
     save_target_state(paths, &state)
 }
 
-pub(super) fn remove_target_state(paths: &DataPaths, name: &str) -> Result<(), String> {
+pub(super) fn remove_target_state(paths: &Paths, name: &str) -> Result<(), String> {
     let mut state = load_target_state(paths)?;
     state.remove(name);
     save_target_state(paths, &state)
 }
 
-pub(super) fn running_pids_for_target(
-    paths: &DataPaths,
-    target: &TargetPlan,
-) -> Result<Vec<u32>, String> {
+pub(super) fn running_pids_for_target(paths: &Paths, target: &Target) -> Result<Vec<u32>, String> {
     let mut pids = Vec::new();
     if let Some(pid) = load_target_state(paths)?
         .get(&target.name)
         .and_then(|entry| entry.get("pid"))
         .and_then(Value::as_u64)
         .and_then(|pid| u32::try_from(pid).ok())
-        .filter(|pid| process_exists(*pid))
+        .filter(|pid| process::exists(*pid))
     {
         pids.push(pid);
     }
-    let hits = discover_by_app_namespace(&target.stamp.app, &target.stamp.namespace)
+    let hits = process::Stamped::discover(Some(&target.stamp.app), &target.stamp.namespace)
         .map_err(|err| format!("discovery failed for `{}`: {err}", target.name))?;
     for hit in hits {
         if !pids.contains(&hit.pid) {
@@ -250,9 +245,9 @@ pub(super) fn running_pids_for_target(
     Ok(pids)
 }
 
-pub(super) fn ensure_broker(plan: &ExecutionPlan) -> Result<String, String> {
+pub(super) fn ensure_broker(plan: &Plan) -> Result<String, String> {
     let identity = broker_identity(plan);
-    if let Some(addr) = discover_broker_endpoint(&identity, Duration::from_millis(200))? {
+    if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
         return Ok(format!("tcp://{addr}"));
     }
 
@@ -286,7 +281,7 @@ pub(super) fn ensure_broker(plan: &ExecutionPlan) -> Result<String, String> {
     let pid = child.id();
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        if let Some(addr) = discover_broker_endpoint(&identity, Duration::from_millis(200))? {
+        if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
             println!("broker runtime pid={pid} endpoint=tcp://{addr}");
             return Ok(format!("tcp://{addr}"));
         }
@@ -298,10 +293,10 @@ pub(super) fn ensure_broker(plan: &ExecutionPlan) -> Result<String, String> {
     ))
 }
 
-pub(super) fn broker_status(plan: &ExecutionPlan) -> Result<BrokerRuntimeStatus, String> {
+pub(super) fn broker_status(plan: &Plan) -> Result<BrokerRuntimeStatus, String> {
     let identity = broker_identity(plan);
-    let brokers = discover_brokers(&identity.project, &identity.namespace)?;
-    let endpoint = discover_broker_endpoint(&identity, Duration::from_millis(200))?;
+    let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
+    let endpoint = identity.endpoint(Duration::from_millis(200))?;
     Ok(BrokerRuntimeStatus {
         pids: brokers.into_iter().map(|broker| broker.pid).collect(),
         endpoint: endpoint.map(|addr| format!("tcp://{addr}")),
@@ -309,8 +304,8 @@ pub(super) fn broker_status(plan: &ExecutionPlan) -> Result<BrokerRuntimeStatus,
 }
 
 pub(super) fn maybe_stop_broker(
-    plan: &ExecutionPlan,
-    paths: &DataPaths,
+    plan: &Plan,
+    paths: &Paths,
     sidecar: Option<&str>,
     force: bool,
 ) -> Result<(), String> {
@@ -320,14 +315,14 @@ pub(super) fn maybe_stop_broker(
     Ok(())
 }
 
-pub(super) fn stop_broker(plan: &ExecutionPlan, force: bool) -> Result<(), String> {
+pub(super) fn stop_broker(plan: &Plan, force: bool) -> Result<(), String> {
     let identity = broker_identity(plan);
-    let brokers = discover_brokers(&identity.project, &identity.namespace)?;
-    for broker in brokers {
-        signal_terminate(broker.pid)
-            .map_err(|err| format!("failed to terminate broker pid {}: {err}", broker.pid))?;
-        wait_for_exit(broker.pid, force)?;
-        println!("stopped broker pid={}", broker.pid);
+    let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
+    for hit in brokers {
+        process::terminate(hit.pid)
+            .map_err(|err| format!("failed to terminate broker pid {}: {err}", hit.pid))?;
+        wait_for_exit(hit.pid, force)?;
+        println!("stopped broker pid={}", hit.pid);
     }
     Ok(())
 }
@@ -369,11 +364,11 @@ pub(super) fn detach_process_group(command: &mut Command) {
     }
 }
 
-fn broker_identity(plan: &ExecutionPlan) -> BrokerIdentity {
-    BrokerIdentity::new(&plan.project, &plan.namespace)
+fn broker_identity(plan: &Plan) -> broker::Identity {
+    broker::Identity::new(&plan.project, &plan.namespace)
 }
 
-fn running_target_count(plan: &ExecutionPlan, paths: &DataPaths) -> Result<usize, String> {
+fn running_target_count(plan: &Plan, paths: &Paths) -> Result<usize, String> {
     let mut count = 0;
     for target in &plan.targets {
         if !running_pids_for_target(paths, target)?.is_empty() {
@@ -386,12 +381,12 @@ fn running_target_count(plan: &ExecutionPlan, paths: &DataPaths) -> Result<usize
 fn wait_until_exit(pid: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if !process_exists(pid) {
+        if !process::exists(pid) {
             return true;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    !process_exists(pid)
+    !process::exists(pid)
 }
 
 fn force_kill(pid: u32) -> Result<(), String> {
@@ -407,7 +402,7 @@ fn force_kill(pid: u32) -> Result<(), String> {
         if group_status.success() {
             return Ok(());
         }
-        if !process_exists(pid) {
+        if !process::exists(pid) {
             return Ok(());
         }
 
@@ -417,7 +412,7 @@ fn force_kill(pid: u32) -> Result<(), String> {
             .stderr(Stdio::null())
             .status()
             .map_err(|err| format!("kill failed: {err}"))?;
-        if status.success() || !process_exists(pid) {
+        if status.success() || !process::exists(pid) {
             Ok(())
         } else {
             Err(format!(
@@ -434,7 +429,7 @@ fn force_kill(pid: u32) -> Result<(), String> {
             .stderr(Stdio::null())
             .status()
             .map_err(|err| format!("taskkill failed: {err}"))?;
-        if status.success() || !process_exists(pid) {
+        if status.success() || !process::exists(pid) {
             Ok(())
         } else {
             Err(format!(

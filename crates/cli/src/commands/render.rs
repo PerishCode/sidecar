@@ -1,6 +1,7 @@
 use crate::cli::OutputFormat;
 use serde_json::{Map, Value};
-use sidecar_core::{InspectResponse, StampedProcess};
+use sidecar_core::inspect;
+use sidecar_core::process::Stamped;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct BrokerRuntimeStatus {
@@ -63,7 +64,7 @@ fn print_status_json(
 
 pub(super) fn print_list(
     namespace: &str,
-    hits: &[StampedProcess],
+    hits: &[Stamped],
     broker: &BrokerRuntimeStatus,
     state: &Map<String, Value>,
     format: OutputFormat,
@@ -76,7 +77,7 @@ pub(super) fn print_list(
 
 fn print_list_text(
     namespace: &str,
-    hits: &[StampedProcess],
+    hits: &[Stamped],
     broker: &BrokerRuntimeStatus,
     state: &Map<String, Value>,
 ) -> Result<(), String> {
@@ -98,7 +99,7 @@ fn print_list_text(
 
 fn print_list_json(
     namespace: &str,
-    hits: &[StampedProcess],
+    hits: &[Stamped],
     broker: &BrokerRuntimeStatus,
     state: &Map<String, Value>,
 ) -> Result<(), String> {
@@ -137,7 +138,7 @@ fn broker_json(broker: &BrokerRuntimeStatus) -> Value {
 pub(super) fn print_inspect_response(
     sidecar: &str,
     event: &str,
-    response: &InspectResponse,
+    response: &inspect::Response,
     format: OutputFormat,
 ) -> Result<(), String> {
     match format {
@@ -149,10 +150,10 @@ pub(super) fn print_inspect_response(
 fn print_inspect_text(
     sidecar: &str,
     event: &str,
-    response: &InspectResponse,
+    response: &inspect::Response,
 ) -> Result<(), String> {
     match response {
-        InspectResponse::Ok(value) => {
+        inspect::Response::Ok(value) => {
             println!("ok {sidecar} {event}");
             println!(
                 "{}",
@@ -160,23 +161,23 @@ fn print_inspect_text(
             );
             Ok(())
         }
-        InspectResponse::Err(message) => Err(format!("inspect error: {message}")),
+        inspect::Response::Err(message) => Err(format!("inspect error: {message}")),
     }
 }
 
 fn print_inspect_json(
     sidecar: &str,
     event: &str,
-    response: &InspectResponse,
+    response: &inspect::Response,
 ) -> Result<(), String> {
     let body = match response {
-        InspectResponse::Ok(value) => serde_json::json!({
+        inspect::Response::Ok(value) => serde_json::json!({
             "sidecar": sidecar,
             "event": event,
             "ok": true,
             "data": value,
         }),
-        InspectResponse::Err(message) => serde_json::json!({
+        inspect::Response::Err(message) => serde_json::json!({
             "sidecar": sidecar,
             "event": event,
             "ok": false,
@@ -187,7 +188,7 @@ fn print_inspect_json(
         "{}",
         serde_json::to_string_pretty(&body).map_err(|err| err.to_string())?
     );
-    if matches!(response, InspectResponse::Err(_)) {
+    if matches!(response, inspect::Response::Err(_)) {
         return Err("inspect endpoint returned ok=false".to_string());
     }
     Ok(())

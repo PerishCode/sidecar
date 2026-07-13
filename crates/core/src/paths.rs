@@ -2,31 +2,29 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DataPaths {
+pub struct Paths {
     pub root: PathBuf,
     pub state: PathBuf,
     pub project: PathBuf,
 }
 
-pub fn resolve_data_paths(
-    namespace: &str,
-    cli_data_home: Option<&Path>,
-    manifest_data_dir: Option<&str>,
-) -> DataPaths {
-    let root = resolve_data_home(cli_data_home);
-    let state = root.join("state");
-    let project = manifest_data_dir
-        .map(|value| PathBuf::from(value.replace("{namespace}", namespace)))
-        .unwrap_or_else(|| root.join("projects").join(namespace));
-    DataPaths {
-        root,
-        state,
-        project,
+impl Paths {
+    pub fn resolve(namespace: &str, explicit: Option<&Path>, data: Option<&str>) -> Paths {
+        let root = home(explicit);
+        let state = root.join("state");
+        let project = data
+            .map(|value| PathBuf::from(value.replace("{namespace}", namespace)))
+            .unwrap_or_else(|| root.join("projects").join(namespace));
+        Paths {
+            root,
+            state,
+            project,
+        }
     }
 }
 
-pub fn resolve_data_home(cli_override: Option<&Path>) -> PathBuf {
-    if let Some(path) = cli_override {
+pub fn home(explicit: Option<&Path>) -> PathBuf {
+    if let Some(path) = explicit {
         return path.to_path_buf();
     }
     if let Some(value) = env::var_os("SIDECAR_DATA_HOME") {
@@ -34,10 +32,10 @@ pub fn resolve_data_home(cli_override: Option<&Path>) -> PathBuf {
             return PathBuf::from(value);
         }
     }
-    default_data_home()
+    fallback()
 }
 
-fn default_data_home() -> PathBuf {
+fn fallback() -> PathBuf {
     if cfg!(windows) {
         if let Some(local) = env::var_os("LOCALAPPDATA") {
             return PathBuf::from(local).join("sidecar");

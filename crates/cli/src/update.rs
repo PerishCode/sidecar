@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use sidecar_core::resolve_data_home;
+use sidecar_core::paths;
 
 const DEFAULT_TTL_SECS: u64 = 24 * 60 * 60;
 const FETCH_TIMEOUT_SECS: u64 = 3;
@@ -213,7 +213,7 @@ fn write_cache(path: &Path, channel: &str, checked_at: u64, latest: &str) -> std
 }
 
 fn cache_dir() -> Option<PathBuf> {
-    Some(resolve_data_home(None).join("state"))
+    Some(paths::home(None).join("state"))
 }
 
 fn curl_fetch(url: &str, timeout_secs: u64) -> Option<String> {

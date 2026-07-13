@@ -1,7 +1,7 @@
 use crate::output::{print_diagnostics, print_plan};
 use crate::update;
 use crate::{broker_runtime, commands};
-use sidecar_core::{resolve_data_paths, DataPaths, DevState, Severity};
+use sidecar_core::{Paths, Severity, State};
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -145,7 +145,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         "plan" => {
             require_no_extra_args(&parsed, 1, "plan")?;
             let state = load_state(&parsed)?;
-            print_plan(&state.execution_plan(), parsed.format)
+            print_plan(&state.plan(), parsed.format)
         }
         "inspect" => run_inspect_command(&parsed),
         "start" | "stop" | "restart" => {
@@ -204,7 +204,7 @@ fn run_inspect_command(parsed: &ParsedArgs) -> Result<(), String> {
         _ if parsed.command[1] == "config" => {
             require_no_extra_args(parsed, 2, "inspect config")?;
             let state = load_state(parsed)?;
-            print_plan(&state.execution_plan(), parsed.format)
+            print_plan(&state.plan(), parsed.format)
         }
         len if len < 3 => Err("inspect <sidecar> <event> [payload] — event is required".into()),
         len if len > 4 => Err(format!(
@@ -251,12 +251,12 @@ fn require_no_extra_args(
     Ok(())
 }
 
-fn load_state(parsed: &ParsedArgs) -> Result<DevState, String> {
+fn load_state(parsed: &ParsedArgs) -> Result<State, String> {
     let (config, discovered) = resolve_config_path(parsed.config.as_deref())?;
     if discovered {
         eprintln!("sidecar: using config {}", config.display());
     }
-    let mut state = DevState::from_config_file(&config).map_err(|error| error.to_string())?;
+    let mut state = State::load(&config).map_err(|error| error.to_string())?;
     let env_project = std::env::var("SIDECAR_PROJECT")
         .ok()
         .filter(|value| !value.is_empty());
@@ -292,14 +292,14 @@ fn resolve_config_path(explicit: Option<&str>) -> Result<(PathBuf, bool), String
     ))
 }
 
-fn data_paths_for(parsed: &ParsedArgs, state: &DevState) -> DataPaths {
-    let mut paths = resolve_data_paths(
+fn data_paths_for(parsed: &ParsedArgs, state: &State) -> Paths {
+    let mut paths = Paths::resolve(
         &state.config.project.namespace,
         parsed.data_home.as_deref().map(Path::new),
-        state.config.project.data_dir.as_deref(),
+        state.config.project.data.as_deref(),
     );
-    if state.config.project.data_dir.is_some() && paths.project.is_relative() {
-        if let Some(config_dir) = state.config_path.parent() {
+    if state.config.project.data.is_some() && paths.project.is_relative() {
+        if let Some(config_dir) = state.path.parent() {
             paths.project = config_dir.join(&paths.project);
         }
     }

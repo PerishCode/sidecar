@@ -1,272 +1,264 @@
 use std::collections::BTreeMap;
 
-use crate::config::{
-    AppConfig, InheritEnvConfig, InspectEndpointConfig, Manifest, ProjectConfig, ReadyConfig,
-    SidecarConfig,
-};
-use crate::stamp::{Stamp, DEFAULT_SOURCE, STAMP_VERSION};
+use crate::config;
+use crate::config::Manifest;
+use crate::stamp;
+use crate::stamp::Stamp;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExecutionPlan {
+pub struct Plan {
     pub project: String,
     pub namespace: String,
     pub root: String,
-    pub app: Option<AppPlan>,
-    pub sidecars: Vec<SidecarPlan>,
-    pub targets: Vec<TargetPlan>,
-    pub inspect_endpoints: Vec<InspectEndpointPlan>,
+    pub app: Option<App>,
+    pub sidecars: Vec<Sidecar>,
+    pub targets: Vec<Target>,
+    pub endpoints: Vec<Endpoint>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AppPlan {
+pub struct App {
     pub name: String,
     pub command: String,
     pub args: Vec<String>,
     pub cwd: String,
     pub stamp: Stamp,
     pub env: BTreeMap<String, String>,
-    pub inherits_env: Vec<InheritEnvPlan>,
-    pub inspect_socket: Option<String>,
-    pub health_url: Option<String>,
-    pub ready: Option<ReadyPlan>,
+    pub inherits: Vec<Inherit>,
+    pub socket: Option<String>,
+    pub health: Option<String>,
+    pub ready: Option<Ready>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SidecarPlan {
+pub struct Sidecar {
     pub name: String,
     pub command: String,
     pub args: Vec<String>,
     pub cwd: String,
     pub stamp: Stamp,
     pub env: BTreeMap<String, String>,
-    pub inherits_env: Vec<InheritEnvPlan>,
-    pub inspect_socket: Option<String>,
-    pub health_url: Option<String>,
-    pub ready: Option<ReadyPlan>,
+    pub inherits: Vec<Inherit>,
+    pub socket: Option<String>,
+    pub health: Option<String>,
+    pub ready: Option<Ready>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TargetPlan {
+pub struct Target {
     pub name: String,
-    pub kind: TargetKind,
+    pub kind: Kind,
     pub command: String,
     pub args: Vec<String>,
     pub cwd: String,
     pub stamp: Stamp,
     pub env: BTreeMap<String, String>,
-    pub inherits_env: Vec<InheritEnvPlan>,
-    pub inspect_socket: Option<String>,
-    pub health_url: Option<String>,
-    pub ready: Option<ReadyPlan>,
+    pub inherits: Vec<Inherit>,
+    pub socket: Option<String>,
+    pub health: Option<String>,
+    pub ready: Option<Ready>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TargetKind {
+pub enum Kind {
     App,
     Sidecar,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReadyPlan {
+pub struct Ready {
     pub role: String,
-    pub timeout_secs: u64,
+    pub timeout: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InheritEnvPlan {
+pub struct Inherit {
     pub name: String,
     pub from: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InspectEndpointPlan {
+pub struct Endpoint {
     pub name: String,
     pub kind: String,
     pub url: String,
 }
 
-impl ExecutionPlan {
-    pub fn from_config(config: &Manifest) -> Self {
-        Self {
-            project: config.project.name.clone(),
-            namespace: config.project.namespace.clone(),
-            root: config.project.root.clone(),
-            app: config
-                .app
-                .as_ref()
-                .map(|app| AppPlan::from_config(app, &config.project)),
-            sidecars: config
+impl Manifest {
+    pub fn plan(&self) -> Plan {
+        Plan {
+            project: self.project.name.clone(),
+            namespace: self.project.namespace.clone(),
+            root: self.project.root.clone(),
+            app: self.app.as_ref().map(|app| app.plan(&self.project)),
+            sidecars: self
                 .sidecars
                 .iter()
-                .map(|sidecar| SidecarPlan::from_config(sidecar, &config.project))
+                .map(|sidecar| sidecar.plan(&self.project))
                 .collect(),
-            targets: build_targets(config),
-            inspect_endpoints: config
+            targets: self.targets(),
+            endpoints: self
                 .inspect
                 .endpoints
                 .iter()
-                .map(InspectEndpointPlan::from_config)
+                .map(config::Endpoint::plan)
                 .collect(),
         }
     }
+
+    fn targets(&self) -> Vec<Target> {
+        let mut targets = Vec::new();
+        targets.extend(self.sidecars.iter().map(|sidecar| {
+            let plan = sidecar.plan(&self.project);
+            Target {
+                name: plan.name,
+                kind: Kind::Sidecar,
+                command: plan.command,
+                args: plan.args,
+                cwd: plan.cwd,
+                stamp: plan.stamp,
+                env: plan.env,
+                inherits: plan.inherits,
+                socket: plan.socket,
+                health: plan.health,
+                ready: plan.ready,
+            }
+        }));
+        if let Some(app) = &self.app {
+            let plan = app.plan(&self.project);
+            targets.push(Target {
+                name: plan.name,
+                kind: Kind::App,
+                command: plan.command,
+                args: plan.args,
+                cwd: plan.cwd,
+                stamp: plan.stamp,
+                env: plan.env,
+                inherits: plan.inherits,
+                socket: plan.socket,
+                health: plan.health,
+                ready: plan.ready,
+            });
+        }
+        targets
+    }
 }
 
-impl AppPlan {
-    fn from_config(config: &AppConfig, project: &ProjectConfig) -> Self {
+impl config::App {
+    fn plan(&self, project: &config::Project) -> App {
         let stamp = Stamp {
-            version: STAMP_VERSION,
-            app: config.name.clone(),
+            version: stamp::VERSION,
+            app: self.name.clone(),
             namespace: project.namespace.clone(),
-            mode: config.mode.clone(),
-            source: DEFAULT_SOURCE.to_string(),
+            mode: self.mode.clone(),
+            source: stamp::default::SOURCE.to_string(),
             endpoint: None,
         };
-        Self {
-            name: config.name.clone(),
-            command: config.command.clone(),
-            args: config.args.clone(),
-            cwd: config.cwd.clone(),
+        App {
+            name: self.name.clone(),
+            command: self.command.clone(),
+            args: self.args.clone(),
+            cwd: self.cwd.clone(),
             stamp,
-            env: config.env.clone(),
-            inherits_env: config
-                .inherits_env
-                .iter()
-                .map(InheritEnvPlan::from_config)
-                .collect(),
-            inspect_socket: config
-                .inspect_socket
+            env: self.env.clone(),
+            inherits: self.inherits.iter().map(config::Inherit::plan).collect(),
+            socket: self
+                .socket
                 .as_ref()
-                .map(|value| expand_target_template(value, project, &config.name)),
-            health_url: config.health_url.clone(),
-            ready: config.ready.as_ref().map(ReadyPlan::from_config),
+                .map(|value| expand(value, project, &self.name)),
+            health: self.health.clone(),
+            ready: self.ready.as_ref().map(config::Ready::plan),
         }
-    }
-
-    pub fn spawn_args(&self) -> Vec<String> {
-        let mut argv = self.args.clone();
-        argv.extend(self.stamp.args());
-        argv
     }
 }
 
-impl SidecarPlan {
-    fn from_config(config: &SidecarConfig, project: &ProjectConfig) -> Self {
+impl config::Sidecar {
+    fn plan(&self, project: &config::Project) -> Sidecar {
         let stamp = Stamp {
-            version: STAMP_VERSION,
-            app: config.name.clone(),
+            version: stamp::VERSION,
+            app: self.name.clone(),
             namespace: project.namespace.clone(),
-            mode: config.mode.clone(),
-            source: DEFAULT_SOURCE.to_string(),
+            mode: self.mode.clone(),
+            source: stamp::default::SOURCE.to_string(),
             endpoint: None,
         };
-        Self {
-            name: config.name.clone(),
-            command: config.command.clone(),
-            args: config.args.clone(),
-            cwd: config.cwd.clone(),
+        Sidecar {
+            name: self.name.clone(),
+            command: self.command.clone(),
+            args: self.args.clone(),
+            cwd: self.cwd.clone(),
             stamp,
-            env: config.env.clone(),
-            inherits_env: config
-                .inherits_env
-                .iter()
-                .map(InheritEnvPlan::from_config)
-                .collect(),
-            inspect_socket: config
-                .inspect_socket
+            env: self.env.clone(),
+            inherits: self.inherits.iter().map(config::Inherit::plan).collect(),
+            socket: self
+                .socket
                 .as_ref()
-                .map(|value| expand_target_template(value, project, &config.name)),
-            health_url: config.health_url.clone(),
-            ready: config.ready.as_ref().map(ReadyPlan::from_config),
+                .map(|value| expand(value, project, &self.name)),
+            health: self.health.clone(),
+            ready: self.ready.as_ref().map(config::Ready::plan),
         }
     }
+}
 
-    pub fn spawn_args(&self) -> Vec<String> {
+impl config::Ready {
+    fn plan(&self) -> Ready {
+        Ready {
+            role: self.role.clone(),
+            timeout: self.timeout,
+        }
+    }
+}
+
+impl config::Inherit {
+    fn plan(&self) -> Inherit {
+        Inherit {
+            name: self.name.clone(),
+            from: self.from.clone(),
+        }
+    }
+}
+
+impl config::Endpoint {
+    fn plan(&self) -> Endpoint {
+        Endpoint {
+            name: self.name.clone(),
+            kind: self.kind.clone(),
+            url: self.url.clone(),
+        }
+    }
+}
+
+impl App {
+    pub fn argv(&self) -> Vec<String> {
         let mut argv = self.args.clone();
         argv.extend(self.stamp.args());
         argv
     }
 }
 
-impl TargetPlan {
-    pub fn spawn_args(&self) -> Vec<String> {
+impl Sidecar {
+    pub fn argv(&self) -> Vec<String> {
+        let mut argv = self.args.clone();
+        argv.extend(self.stamp.args());
+        argv
+    }
+}
+
+impl Target {
+    pub fn argv(&self) -> Vec<String> {
         let mut argv = self.args.clone();
         argv.extend(self.stamp.args());
         argv
     }
 
-    pub fn spawn_args_with_endpoint(&self, endpoint: &str) -> Vec<String> {
+    pub fn launch(&self, endpoint: &str) -> Vec<String> {
         let mut argv = self.args.clone();
-        argv.extend(self.stamp.with_endpoint(endpoint).args());
+        argv.extend(self.stamp.at(endpoint).args());
         argv
     }
 }
 
-impl ReadyPlan {
-    fn from_config(config: &ReadyConfig) -> Self {
-        Self {
-            role: config.role.clone(),
-            timeout_secs: config.timeout_secs,
-        }
-    }
-}
-
-impl InheritEnvPlan {
-    fn from_config(config: &InheritEnvConfig) -> Self {
-        Self {
-            name: config.name.clone(),
-            from: config.from.clone(),
-        }
-    }
-}
-
-impl InspectEndpointPlan {
-    fn from_config(config: &InspectEndpointConfig) -> Self {
-        Self {
-            name: config.name.clone(),
-            kind: config.kind.clone(),
-            url: config.url.clone(),
-        }
-    }
-}
-
-fn build_targets(config: &Manifest) -> Vec<TargetPlan> {
-    let mut targets = Vec::new();
-    targets.extend(config.sidecars.iter().map(|sidecar| {
-        let plan = SidecarPlan::from_config(sidecar, &config.project);
-        TargetPlan {
-            name: plan.name,
-            kind: TargetKind::Sidecar,
-            command: plan.command,
-            args: plan.args,
-            cwd: plan.cwd,
-            stamp: plan.stamp,
-            env: plan.env,
-            inherits_env: plan.inherits_env,
-            inspect_socket: plan.inspect_socket,
-            health_url: plan.health_url,
-            ready: plan.ready,
-        }
-    }));
-    if let Some(app) = &config.app {
-        let plan = AppPlan::from_config(app, &config.project);
-        targets.push(TargetPlan {
-            name: plan.name,
-            kind: TargetKind::App,
-            command: plan.command,
-            args: plan.args,
-            cwd: plan.cwd,
-            stamp: plan.stamp,
-            env: plan.env,
-            inherits_env: plan.inherits_env,
-            inspect_socket: plan.inspect_socket,
-            health_url: plan.health_url,
-            ready: plan.ready,
-        });
-    }
-    targets
-}
-
-fn expand_target_template(value: &str, project: &ProjectConfig, name: &str) -> String {
+fn expand(value: &str, project: &config::Project, name: &str) -> String {
     value
         .replace("{project}", &project.name)
         .replace("{namespace}", &project.namespace)

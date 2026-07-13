@@ -5,115 +5,117 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
-    pub project: ProjectConfig,
+    pub project: Project,
     #[serde(default)]
-    pub app: Option<AppConfig>,
+    pub app: Option<App>,
     #[serde(default)]
-    pub sidecars: Vec<SidecarConfig>,
+    pub sidecars: Vec<Sidecar>,
     #[serde(default)]
-    pub inspect: InspectConfig,
+    pub inspect: Inspect,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectConfig {
+pub struct Project {
     pub name: String,
-    #[serde(default = "default_namespace")]
+    #[serde(default = "default::namespace")]
     pub namespace: String,
-    #[serde(default = "default_root")]
+    #[serde(default = "default::root")]
     pub root: String,
-    #[serde(default)]
-    pub data_dir: Option<String>,
+    #[serde(default, rename = "data_dir")]
+    pub data: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AppConfig {
+pub struct App {
     pub name: String,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
-    #[serde(default = "default_root")]
+    #[serde(default = "default::root")]
     pub cwd: String,
-    #[serde(default = "default_mode")]
+    #[serde(default = "default::mode")]
     pub mode: String,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    #[serde(default, rename = "inherits_env")]
+    pub inherits: Vec<Inherit>,
+    #[serde(default, rename = "inspect_socket")]
+    pub socket: Option<String>,
+    #[serde(default, rename = "health_url")]
+    pub health: Option<String>,
     #[serde(default)]
-    pub inherits_env: Vec<InheritEnvConfig>,
-    #[serde(default)]
-    pub inspect_socket: Option<String>,
-    #[serde(default)]
-    pub health_url: Option<String>,
-    #[serde(default)]
-    pub ready: Option<ReadyConfig>,
+    pub ready: Option<Ready>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct SidecarConfig {
+pub struct Sidecar {
     pub name: String,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
-    #[serde(default = "default_root")]
+    #[serde(default = "default::root")]
     pub cwd: String,
-    #[serde(default = "default_mode")]
+    #[serde(default = "default::mode")]
     pub mode: String,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    #[serde(default, rename = "inherits_env")]
+    pub inherits: Vec<Inherit>,
+    #[serde(default, rename = "inspect_socket")]
+    pub socket: Option<String>,
+    #[serde(default, rename = "health_url")]
+    pub health: Option<String>,
     #[serde(default)]
-    pub inherits_env: Vec<InheritEnvConfig>,
-    #[serde(default)]
-    pub inspect_socket: Option<String>,
-    #[serde(default)]
-    pub health_url: Option<String>,
-    #[serde(default)]
-    pub ready: Option<ReadyConfig>,
+    pub ready: Option<Ready>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ReadyConfig {
+pub struct Ready {
     pub role: String,
-    #[serde(default = "default_ready_timeout_secs")]
-    pub timeout_secs: u64,
+    #[serde(default = "default::timeout", rename = "timeout_secs")]
+    pub timeout: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct InheritEnvConfig {
+pub struct Inherit {
     pub name: String,
     pub from: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct InspectConfig {
+pub struct Inspect {
     #[serde(default)]
-    pub endpoints: Vec<InspectEndpointConfig>,
+    pub endpoints: Vec<Endpoint>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct InspectEndpointConfig {
+pub struct Endpoint {
     pub name: String,
     pub kind: String,
     pub url: String,
 }
 
-fn default_root() -> String {
-    ".".to_string()
-}
+mod default {
+    pub(super) fn root() -> String {
+        ".".to_string()
+    }
 
-fn default_namespace() -> String {
-    crate::stamp::DEFAULT_NAMESPACE.to_string()
-}
+    pub(super) fn namespace() -> String {
+        crate::stamp::default::NAMESPACE.to_string()
+    }
 
-fn default_mode() -> String {
-    crate::stamp::DEFAULT_MODE.to_string()
-}
+    pub(super) fn mode() -> String {
+        crate::stamp::default::MODE.to_string()
+    }
 
-fn default_ready_timeout_secs() -> u64 {
-    120
+    pub(super) fn timeout() -> u64 {
+        120
+    }
 }

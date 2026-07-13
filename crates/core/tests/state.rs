@@ -1,9 +1,9 @@
-use sidecar_core::{DevState, Manifest};
+use sidecar_core::{Manifest, State};
 use std::path::PathBuf;
 
 #[test]
-fn duplicate_sidecars() {
-    let state = state_from(
+fn duplicates() {
+    let state = seed(
         r#"
         [project]
         name = "app"
@@ -25,8 +25,8 @@ fn duplicate_sidecars() {
 }
 
 #[test]
-fn inspect_optional() {
-    let state = state_from(
+fn optional() {
+    let state = seed(
         r#"
         [project]
         name = "app"
@@ -43,8 +43,8 @@ fn inspect_optional() {
 }
 
 #[test]
-fn sidecar_only_ok() {
-    let state = state_from(
+fn solo() {
+    let state = seed(
         r#"
         [project]
         name = "cells"
@@ -63,8 +63,8 @@ fn sidecar_only_ok() {
 }
 
 #[test]
-fn empty_warns() {
-    let state = state_from(
+fn empty() {
+    let state = seed(
         r#"
         [project]
         name = "empty"
@@ -78,8 +78,8 @@ fn empty_warns() {
 }
 
 #[test]
-fn cargo_run_warns() {
-    let state = state_from(
+fn warned() {
+    let state = seed(
         r#"
         [project]
         name = "cells"
@@ -98,8 +98,8 @@ fn cargo_run_warns() {
 }
 
 #[test]
-fn cargo_run_ok() {
-    let state = state_from(
+fn separated() {
+    let state = seed(
         r#"
         [project]
         name = "cells"
@@ -118,7 +118,7 @@ fn cargo_run_ok() {
 }
 
 #[test]
-fn legacy_env_fields_rejected() {
+fn legacy() {
     let err = toml::from_str::<Manifest>(
         r#"
         [project]
@@ -138,8 +138,8 @@ fn legacy_env_fields_rejected() {
 }
 
 #[test]
-fn execution_plan() {
-    let state = state_from(
+fn planned() {
+    let state = seed(
         r#"
         [project]
         name = "app"
@@ -156,17 +156,17 @@ fn execution_plan() {
         "#,
     );
 
-    let plan = state.execution_plan();
+    let plan = state.plan();
     assert_eq!(plan.project, "app");
     assert_eq!(plan.namespace, "default");
     assert_eq!(plan.app.unwrap().command, "pnpm");
     assert_eq!(plan.targets.len(), 1);
-    assert_eq!(plan.inspect_endpoints.len(), 1);
+    assert_eq!(plan.endpoints.len(), 1);
 }
 
 #[test]
-fn endpoint_in_stamp_args() {
-    let state = state_from(
+fn endpoint() {
+    let state = seed(
         r#"
         [project]
         name = "app"
@@ -177,8 +177,8 @@ fn endpoint_in_stamp_args() {
         "#,
     );
 
-    let plan = state.execution_plan();
-    let args = plan.targets[0].spawn_args_with_endpoint("tcp://127.0.0.1:4100");
+    let plan = state.plan();
+    let args = plan.targets[0].launch("tcp://127.0.0.1:4100");
     let stamp = args
         .iter()
         .find(|arg| arg.starts_with("--sidecar-stamp="))
@@ -187,9 +187,9 @@ fn endpoint_in_stamp_args() {
     assert!(stamp.contains(";e=tcp%3A%2F%2F127.0.0.1%3A4100"));
 }
 
-fn state_from(text: &str) -> DevState {
-    DevState {
-        config_path: PathBuf::from("inline.toml"),
+fn seed(text: &str) -> State {
+    State {
+        path: PathBuf::from("inline.toml"),
         config: toml::from_str(text).unwrap(),
     }
 }

@@ -1,4 +1,4 @@
-use crate::socket::SocketEndpoint;
+use crate::socket;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
@@ -7,23 +7,23 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
-pub struct InspectRequest {
+pub struct Request {
     pub event: String,
     pub payload: Value,
 }
 
 #[derive(Clone, Debug)]
-pub enum InspectResponse {
+pub enum Response {
     Ok(Value),
     Err(String),
 }
 
 pub fn send(
-    endpoint: &SocketEndpoint,
-    request: &InspectRequest,
+    endpoint: &socket::Endpoint,
+    request: &Request,
     timeout: Option<Duration>,
-) -> Result<InspectResponse, String> {
-    let id = next_event_id();
+) -> Result<Response, String> {
+    let id = id();
     let mut line = serde_json::to_string(&serde_json::json!({
         "kind": "event",
         "id": id,
@@ -34,13 +34,14 @@ pub fn send(
     line.push('\n');
 
     let raw = match endpoint {
-        SocketEndpoint::Unix(path) => unix_round_trip(path, &line, timeout)?,
-        SocketEndpoint::Tcp(address) => tcp_round_trip(address, &line, timeout)?,
+        socket::Endpoint::Unix(path) => unix(path, &line, timeout)?,
+        socket::Endpoint::Tcp(address) => tcp(address, &line, timeout)?,
     };
-    parse_response(&raw, &id)
+    parse(&raw, &id)
 }
 
-fn parse_response(text: &str, expected_id: &str) -> Result<InspectResponse, String> {
+#[doc(hidden)]
+pub fn parse(text: &str, expected: &str) -> Result<Response, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err("inspect endpoint returned empty response".to_string());
@@ -51,22 +52,22 @@ fn parse_response(text: &str, expected_id: &str) -> Result<InspectResponse, Stri
         .and_then(Value::as_str)
         .ok_or_else(|| "inspect response missing kind".to_string())?;
     let id = value.get("id").and_then(Value::as_str).unwrap_or_default();
-    if id != expected_id {
+    if id != expected {
         return Err(format!(
-            "inspect response id mismatch: expected {expected_id}, got {id}"
+            "inspect response id mismatch: expected {expected}, got {id}"
         ));
     }
 
     match kind {
-        "event_response" => Ok(InspectResponse::Ok(
+        "event_response" => Ok(Response::Ok(
             value.get("payload").cloned().unwrap_or(Value::Null),
         )),
         "event_error" => {
             let error = value
                 .get("error")
-                .map(format_event_error)
+                .map(describe)
                 .unwrap_or_else(|| "inspect endpoint returned event_error".to_string());
-            Ok(InspectResponse::Err(error))
+            Ok(Response::Err(error))
         }
         other => Err(format!(
             "expected event_response/event_error inspect frame, got {other}"
@@ -74,7 +75,7 @@ fn parse_response(text: &str, expected_id: &str) -> Result<InspectResponse, Stri
     }
 }
 
-fn format_event_error(value: &Value) -> String {
+fn describe(value: &Value) -> String {
     let code = value
         .get("code")
         .and_then(Value::as_str)
@@ -87,7 +88,7 @@ fn format_event_error(value: &Value) -> String {
 }
 
 #[cfg(unix)]
-fn unix_round_trip(
+fn unix(
     path: &std::path::PathBuf,
     line: &str,
     timeout: Option<Duration>,
@@ -109,7 +110,7 @@ fn unix_round_trip(
 }
 
 #[cfg(not(unix))]
-fn unix_round_trip(
+fn unix(
     _path: &std::path::PathBuf,
     _line: &str,
     _timeout: Option<Duration>,
@@ -117,7 +118,7 @@ fn unix_round_trip(
     Err("unix inspect transport is not available on this platform".to_string())
 }
 
-fn tcp_round_trip(address: &str, line: &str, timeout: Option<Duration>) -> Result<String, String> {
+fn tcp(address: &str, line: &str, timeout: Option<Duration>) -> Result<String, String> {
     let mut stream = TcpStream::connect(address).map_err(|err| err.to_string())?;
     if let Some(timeout) = timeout {
         let _ = stream.set_read_timeout(Some(timeout));
@@ -134,7 +135,7 @@ fn tcp_round_trip(address: &str, line: &str, timeout: Option<Duration>) -> Resul
     Ok(response)
 }
 
-fn next_event_id() -> String {
+fn id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -144,9 +145,4 @@ fn next_event_id() -> String {
         .map(|duration| duration.as_micros())
         .unwrap_or(0);
     format!("{micros}-{count}")
-}
-
-#[doc(hidden)]
-pub fn parse_response_for_test(text: &str, expected_id: &str) -> Result<InspectResponse, String> {
-    parse_response(text, expected_id)
 }
