@@ -33,7 +33,7 @@ fn required() {
     assert!(Identity::decode("p=app;n=default").is_err());
 
     let args = vec!["--sidecar-broker=p=app;n=default;s=tool%3Asidecar".into()];
-    let identity = broker::read(&args).unwrap();
+    let identity = broker::find(&args).unwrap();
     assert_eq!(identity.project, "app");
     assert_eq!(identity.namespace, "default");
     assert_eq!(identity.source, "tool:sidecar");

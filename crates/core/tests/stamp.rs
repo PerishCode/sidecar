@@ -39,10 +39,10 @@ fn forms() {
 #[test]
 fn required() {
     let partial = vec!["--sidecar-stamp=v=1;a=api;n=default;m=dev".to_string()];
-    assert!(stamp::read(&partial).is_none());
+    assert!(stamp::find(&partial).is_none());
 
     let full = vec!["--sidecar-stamp=v=1;a=api;n=default;m=dev;s=tool%3Asidecar".into()];
-    let stamp = stamp::read(&full).unwrap();
+    let stamp = stamp::find(&full).unwrap();
     assert_eq!(stamp.version, 1);
     assert_eq!(stamp.app, "api");
     assert_eq!(stamp.source, "tool:sidecar");
