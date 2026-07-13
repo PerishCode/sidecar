@@ -1,8 +1,3 @@
-//! Cross-platform process discovery via stamp args matching.
-//!
-//! Unix uses `ps -axo pid=,command=`. Windows queries Win32_Process through
-//! the platform PowerShell host so stamp discovery retains full argv data.
-
 use crate::runtime::broker::read_broker_identity;
 use crate::stamp::read_stamp;
 #[cfg(any(unix, windows))]

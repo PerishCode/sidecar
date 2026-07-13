@@ -1,11 +1,3 @@
-//! Inspect IPC bridge: connect to a sidecar's inspect socket and exchange a
-//! single SidecarRuntime event frame.
-//!
-//! Wire format (one line per direction):
-//!   request:  `{"kind":"event","id":"...","verb":"...","payload":<json>}\n`
-//!   response: `{"kind":"event_response","id":"...","payload":<json>}\n`
-//!          or `{"kind":"event_error","id":"...","error":{"code":"...","message":"..."}}\n`
-
 use crate::socket::SocketEndpoint;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};

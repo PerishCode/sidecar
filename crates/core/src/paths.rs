@@ -1,32 +1,10 @@
-//! Resolves the global sidecar data home and project-scoped paths.
-//!
-//! Layout:
-//! ```text
-//! <data_home>/
-//! ├── state/                 (global; e.g. update cache)
-//! └── projects/<namespace>/  (per-project, isolated by stamp namespace)
-//! ```
-//!
-//! Override precedence (highest wins):
-//! 1. `cli_data_home` argument (e.g. `--data-home <path>`)
-//! 2. env `SIDECAR_DATA_HOME`
-//! 3. platform default (`$XDG_DATA_HOME/sidecar` → `$HOME/.local/share/sidecar`,
-//!    or `%LOCALAPPDATA%\sidecar` on Windows)
-//!
-//! For the per-project subdir, an explicit manifest `[project].data_dir`
-//! field replaces `<data_home>/projects/<namespace>` entirely (it does
-//! not affect `state/`).
-
 use std::env;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DataPaths {
-    /// `<data_home>` root. May be a synthesized fallback if no HOME / LOCALAPPDATA exists.
     pub root: PathBuf,
-    /// `<data_home>/state` — shared, namespace-independent.
     pub state: PathBuf,
-    /// `<data_home>/projects/<namespace>` (or manifest `data_dir` override).
     pub project: PathBuf,
 }
 

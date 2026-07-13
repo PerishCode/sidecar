@@ -1,5 +1,3 @@
-//! TCP listener discovery for a process id.
-
 #[cfg(any(target_os = "linux", windows))]
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

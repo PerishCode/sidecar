@@ -1,13 +1,3 @@
-//! Startup update check + `update` subcommand.
-//!
-//! Boundary: lives in cli; core stays free of network/IO/output.
-//! Philosophy: thin wrapper. The check shells out to curl with a short
-//! timeout, never fails the parent command, and emits one info line to
-//! stderr. The subcommand downloads manage.sh|ps1 to a tempfile and
-//! execs it with the canonical `update` verb — no decompression,
-//! no checksum verification, no rollback. The escape hatch on any
-//! breakage is `sidecar reset` + reinstall per the latest README.
-
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -162,13 +152,9 @@ fn parse_ttl(raw: &str) -> Option<Duration> {
 fn latest_version(public_url: &str, channel: &str, ttl: Duration) -> Option<String> {
     let cache_path = cache_dir().map(|d| d.join(format!("update-{channel}.json")));
     let now = now_epoch();
-    if ttl > Duration::ZERO {
-        if let Some(path) = &cache_path {
-            if let Some((checked_at, latest)) = read_cache(path, channel) {
-                if now.saturating_sub(checked_at) < ttl.as_secs() {
-                    return Some(latest);
-                }
-            }
+    if let Some(path) = &cache_path {
+        if let Some(latest) = fresh(path, channel, ttl) {
+            return Some(latest);
         }
     }
     let url = format!(
@@ -183,6 +169,17 @@ fn latest_version(public_url: &str, channel: &str, ttl: Duration) -> Option<Stri
         let _ = write_cache(path, channel, now, &release);
     }
     Some(release)
+}
+
+fn fresh(path: &Path, channel: &str, ttl: Duration) -> Option<String> {
+    if ttl == Duration::ZERO {
+        return None;
+    }
+    let (checked, latest) = read_cache(path, channel)?;
+    if now_epoch().saturating_sub(checked) < ttl.as_secs() {
+        return Some(latest);
+    }
+    None
 }
 
 fn now_epoch() -> u64 {

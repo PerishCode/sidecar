@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "@/lib/": "./lib/",
+    "@std/cli/parse-args": "jsr:@std/cli@1.0.30/parse-args"
+  },
+  "compilerOptions": {
+    "strict": true
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "semiColons": true
+  }
+}

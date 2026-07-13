@@ -13,16 +13,18 @@ pub(crate) fn serve(project: &str, namespace: &str) -> Result<(), String> {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
-                let identity = identity.clone();
-                std::thread::spawn(move || {
-                    let _ = handle_client(stream, &identity);
-                });
-            }
+            Ok(stream) => accept(stream, &identity),
             Err(err) => return Err(format!("broker listener failed: {err}")),
         }
     }
     Ok(())
+}
+
+fn accept(stream: TcpStream, identity: &BrokerIdentity) {
+    let identity = identity.clone();
+    std::thread::spawn(move || {
+        let _ = handle_client(stream, &identity);
+    });
 }
 
 fn handle_client(mut stream: TcpStream, identity: &BrokerIdentity) -> Result<(), String> {
