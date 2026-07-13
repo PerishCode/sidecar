@@ -23,11 +23,11 @@ pub(crate) fn serve(project: &str, namespace: &str) -> Result<(), String> {
 fn accept(stream: TcpStream, identity: &broker::Identity) {
     let identity = identity.clone();
     std::thread::spawn(move || {
-        let _ = handle_client(stream, &identity);
+        let _ = handle(stream, &identity);
     });
 }
 
-fn handle_client(mut stream: TcpStream, identity: &broker::Identity) -> Result<(), String> {
+fn handle(mut stream: TcpStream, identity: &broker::Identity) -> Result<(), String> {
     let mut line = String::new();
     {
         let mut reader = BufReader::new(
@@ -57,18 +57,18 @@ fn handle_client(mut stream: TcpStream, identity: &broker::Identity) -> Result<(
 
 #[doc(hidden)]
 pub mod __test {
-    use super::handle_client;
+    use super::handle;
     use sidecar_core::broker;
     use std::io::{BufRead, BufReader, Write};
     use std::net::{TcpListener, TcpStream};
 
-    pub fn round_trip(request: &str) -> Result<String, String> {
+    pub fn exchange(request: &str) -> Result<String, String> {
         let listener = TcpListener::bind(("127.0.0.1", 0))
             .map_err(|err| format!("bind test listener: {err}"))?;
         let addr = listener.local_addr().map_err(|err| err.to_string())?;
         let worker = std::thread::spawn(move || {
             let (stream, _) = listener.accept().map_err(|err| err.to_string())?;
-            handle_client(stream, &broker::Identity::new("sidecar", "default"))
+            handle(stream, &broker::Identity::new("sidecar", "default"))
         });
 
         let mut stream = TcpStream::connect(addr).map_err(|err| err.to_string())?;

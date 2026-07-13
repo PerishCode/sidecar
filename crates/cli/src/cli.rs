@@ -1,30 +1,41 @@
-use crate::output::{print_diagnostics, print_plan};
 use crate::update;
-use crate::{broker_runtime, commands};
+use crate::{broker, commands, output};
 use sidecar_core::{Paths, Severity, State};
 use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
 
-const INSPECT_DEFAULT_TIMEOUT_SECS: u64 = 5;
-const DEFAULT_CONFIG_FILENAME: &str = "sidecar.toml";
+mod default {
+    pub(super) const TIMEOUT: u64 = 5;
+    pub(super) const MANIFEST: &str = "sidecar.toml";
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OutputFormat {
+pub(crate) enum Format {
     Text,
     Json,
 }
 
+impl Format {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "text" => Ok(Format::Text),
+            "json" => Ok(Format::Json),
+            _ => Err(format!("unsupported output format: {value}")),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ParsedArgs {
+struct Args {
     command: Vec<String>,
     config: Option<String>,
-    format: OutputFormat,
-    data_home: Option<String>,
-    project_override: Option<String>,
-    inspect_timeout_secs: u64,
-    reset_all: bool,
+    format: Format,
+    home: Option<String>,
+    project: Option<String>,
+    timeout: u64,
+    all: bool,
     force: bool,
 }
 
@@ -36,7 +47,7 @@ pub fn channel() -> &'static str {
     option_env!("SIDECAR_BUILD_CHANNEL").unwrap_or("dev")
 }
 
-pub fn help_text() -> &'static str {
+pub fn help() -> &'static str {
     r#"sidecar
 
 Product-neutral sidecar lifecycle and inspect IPC manager.
@@ -95,15 +106,15 @@ Project:
 pub fn run(args: Vec<String>) -> Result<(), String> {
     let parsed = parse(args)?;
     if parsed.command.is_empty() {
-        print!("{help}", help = help_text());
+        print!("{help}", help = help());
         println!();
         return Ok(());
     }
 
-    if let Some(home) = &parsed.data_home {
+    if let Some(home) = &parsed.home {
         std::env::set_var("SIDECAR_DATA_HOME", home);
     }
-    if let Some(project) = &parsed.project_override {
+    if let Some(project) = &parsed.project {
         std::env::set_var("SIDECAR_PROJECT", project);
     }
 
@@ -112,11 +123,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         cmd,
         "help" | "--help" | "-h" | "version" | "--version" | "-V" | "update" | "runtime"
     ) {
-        update::maybe_emit_check_notice(version(), channel());
+        update::notice(version(), channel());
     }
     match cmd {
         "help" | "--help" | "-h" => {
-            println!("{}", help_text());
+            println!("{}", help());
             Ok(())
         }
         "version" | "--version" | "-V" => {
@@ -124,15 +135,15 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         "update" => {
-            require_no_extra_args(&parsed, 1, "update")?;
-            update::run_update(channel())
+            parsed.exact(1, "update")?;
+            update::run(channel())
         }
-        "runtime" => run_runtime_command(&parsed),
+        "runtime" => runtime(&parsed),
         "doctor" => {
-            require_no_extra_args(&parsed, 1, "doctor")?;
-            let state = load_state(&parsed)?;
+            parsed.exact(1, "doctor")?;
+            let state = parsed.state()?;
             let diagnostics = state.diagnostics();
-            print_diagnostics(&diagnostics, parsed.format)?;
+            output::diagnostics(&diagnostics, parsed.format)?;
             if diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.severity == Severity::Error)
@@ -143,15 +154,15 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             }
         }
         "plan" => {
-            require_no_extra_args(&parsed, 1, "plan")?;
-            let state = load_state(&parsed)?;
-            print_plan(&state.plan(), parsed.format)
+            parsed.exact(1, "plan")?;
+            let state = parsed.state()?;
+            output::plan(&state.plan(), parsed.format)
         }
-        "inspect" => run_inspect_command(&parsed),
+        "inspect" => inspect(&parsed),
         "start" | "stop" | "restart" => {
-            let target = optional_target(&parsed, cmd)?;
-            let state = load_state(&parsed)?;
-            let paths = data_paths_for(&parsed, &state);
+            let target = parsed.target(cmd)?;
+            let state = parsed.state()?;
+            let paths = parsed.paths(&state);
             match cmd {
                 "start" => commands::start(&state, &paths, target),
                 "stop" => commands::stop(&state, &paths, target, parsed.force),
@@ -160,22 +171,22 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             }
         }
         "status" => {
-            require_no_extra_args(&parsed, 1, "status")?;
-            let state = load_state(&parsed)?;
-            let paths = data_paths_for(&parsed, &state);
+            parsed.exact(1, "status")?;
+            let state = parsed.state()?;
+            let paths = parsed.paths(&state);
             commands::status(&state, &paths, parsed.format)
         }
         "list" => {
-            require_no_extra_args(&parsed, 1, "list")?;
-            let state = load_state(&parsed)?;
-            let paths = data_paths_for(&parsed, &state);
+            parsed.exact(1, "list")?;
+            let state = parsed.state()?;
+            let paths = parsed.paths(&state);
             commands::list(&state, &paths, parsed.format)
         }
         "reset" => {
-            require_no_extra_args(&parsed, 1, "reset")?;
-            let state = load_state(&parsed)?;
-            let paths = data_paths_for(&parsed, &state);
-            commands::reset(&state, &paths, parsed.reset_all, parsed.force)
+            parsed.exact(1, "reset")?;
+            let state = parsed.state()?;
+            let paths = parsed.paths(&state);
+            commands::reset(&state, &paths, parsed.all, parsed.force)
         }
         _ => Err(format!(
             "unknown command: {}; run `sidecar help`",
@@ -184,11 +195,9 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     }
 }
 
-fn run_runtime_command(parsed: &ParsedArgs) -> Result<(), String> {
+fn runtime(parsed: &Args) -> Result<(), String> {
     match parsed.command.as_slice() {
-        [_, verb, project, namespace, ..] if verb == "serve" => {
-            broker_runtime::serve(project, namespace)
-        }
+        [_, verb, project, namespace, ..] if verb == "serve" => broker::serve(project, namespace),
         [_, verb, ..] if verb == "serve" => {
             Err("runtime serve requires <project> <namespace>".to_string())
         }
@@ -198,13 +207,13 @@ fn run_runtime_command(parsed: &ParsedArgs) -> Result<(), String> {
     }
 }
 
-fn run_inspect_command(parsed: &ParsedArgs) -> Result<(), String> {
+fn inspect(parsed: &Args) -> Result<(), String> {
     match parsed.command.len() {
         1 => Err("inspect requires `config` or `<sidecar> <event> [payload]`".to_string()),
         _ if parsed.command[1] == "config" => {
-            require_no_extra_args(parsed, 2, "inspect config")?;
-            let state = load_state(parsed)?;
-            print_plan(&state.plan(), parsed.format)
+            parsed.exact(2, "inspect config")?;
+            let state = parsed.state()?;
+            output::plan(&state.plan(), parsed.format)
         }
         len if len < 3 => Err("inspect <sidecar> <event> [payload] — event is required".into()),
         len if len > 4 => Err(format!(
@@ -212,61 +221,73 @@ fn run_inspect_command(parsed: &ParsedArgs) -> Result<(), String> {
             parsed.command[4..].join(" ")
         )),
         _ => {
-            let state = load_state(parsed)?;
+            let state = parsed.state()?;
             let payload = parsed.command.get(3).map(String::as_str);
             commands::inspect(
                 &state,
                 &parsed.command[1],
                 &parsed.command[2],
                 payload,
-                Duration::from_secs(parsed.inspect_timeout_secs),
+                Duration::from_secs(parsed.timeout),
                 parsed.format,
             )
         }
     }
 }
 
-fn optional_target<'a>(parsed: &'a ParsedArgs, command: &str) -> Result<Option<&'a str>, String> {
-    match parsed.command.len() {
-        1 => Ok(None),
-        2 => Ok(Some(parsed.command[1].as_str())),
-        _ => Err(format!(
-            "unsupported {command} arguments: {}",
-            parsed.command[2..].join(" ")
-        )),
+impl Args {
+    fn target(&self, command: &str) -> Result<Option<&str>, String> {
+        match self.command.len() {
+            1 => Ok(None),
+            2 => Ok(Some(self.command[1].as_str())),
+            _ => Err(format!(
+                "unsupported {command} arguments: {}",
+                self.command[2..].join(" ")
+            )),
+        }
+    }
+
+    fn exact(&self, expected: usize, command: &str) -> Result<(), String> {
+        if self.command.len() > expected {
+            return Err(format!(
+                "unsupported {command} arguments: {}",
+                self.command[expected..].join(" ")
+            ));
+        }
+        Ok(())
+    }
+
+    fn state(&self) -> Result<State, String> {
+        let (config, discovered) = locate(self.config.as_deref())?;
+        if discovered {
+            eprintln!("sidecar: using config {}", config.display());
+        }
+        let mut state = State::load(&config).map_err(|error| error.to_string())?;
+        let env = std::env::var("SIDECAR_PROJECT")
+            .ok()
+            .filter(|value| !value.is_empty());
+        if let Some(ns) = self.project.clone().or(env) {
+            state.config.project.namespace = ns;
+        }
+        Ok(state)
+    }
+
+    fn paths(&self, state: &State) -> Paths {
+        let mut paths = Paths::resolve(
+            &state.config.project.namespace,
+            self.home.as_deref().map(Path::new),
+            state.config.project.data.as_deref(),
+        );
+        if state.config.project.data.is_some() && paths.project.is_relative() {
+            if let Some(config_dir) = state.path.parent() {
+                paths.project = config_dir.join(&paths.project);
+            }
+        }
+        paths
     }
 }
 
-fn require_no_extra_args(
-    parsed: &ParsedArgs,
-    expected_len: usize,
-    command: &str,
-) -> Result<(), String> {
-    if parsed.command.len() > expected_len {
-        return Err(format!(
-            "unsupported {command} arguments: {}",
-            parsed.command[expected_len..].join(" ")
-        ));
-    }
-    Ok(())
-}
-
-fn load_state(parsed: &ParsedArgs) -> Result<State, String> {
-    let (config, discovered) = resolve_config_path(parsed.config.as_deref())?;
-    if discovered {
-        eprintln!("sidecar: using config {}", config.display());
-    }
-    let mut state = State::load(&config).map_err(|error| error.to_string())?;
-    let env_project = std::env::var("SIDECAR_PROJECT")
-        .ok()
-        .filter(|value| !value.is_empty());
-    if let Some(ns) = parsed.project_override.clone().or(env_project) {
-        state.config.project.namespace = ns;
-    }
-    Ok(state)
-}
-
-fn resolve_config_path(explicit: Option<&str>) -> Result<(PathBuf, bool), String> {
+fn locate(explicit: Option<&str>) -> Result<(PathBuf, bool), String> {
     if let Some(config) = explicit {
         return Ok((PathBuf::from(config), false));
     }
@@ -274,7 +295,7 @@ fn resolve_config_path(explicit: Option<&str>) -> Result<(PathBuf, bool), String
     let cwd = std::env::current_dir().map_err(|error| format!("failed to read cwd: {error}"))?;
     let mut searched = Vec::new();
     for dir in cwd.ancestors() {
-        let candidate = dir.join(DEFAULT_CONFIG_FILENAME);
+        let candidate = dir.join(default::MANIFEST);
         if candidate.is_file() {
             return Ok((candidate, true));
         }
@@ -292,28 +313,14 @@ fn resolve_config_path(explicit: Option<&str>) -> Result<(PathBuf, bool), String
     ))
 }
 
-fn data_paths_for(parsed: &ParsedArgs, state: &State) -> Paths {
-    let mut paths = Paths::resolve(
-        &state.config.project.namespace,
-        parsed.data_home.as_deref().map(Path::new),
-        state.config.project.data.as_deref(),
-    );
-    if state.config.project.data.is_some() && paths.project.is_relative() {
-        if let Some(config_dir) = state.path.parent() {
-            paths.project = config_dir.join(&paths.project);
-        }
-    }
-    paths
-}
-
-fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
+fn parse(args: Vec<String>) -> Result<Args, String> {
     let mut command = Vec::new();
     let mut config = None;
-    let mut format = OutputFormat::Text;
-    let mut data_home = None;
-    let mut project_override = None;
-    let mut inspect_timeout_secs = INSPECT_DEFAULT_TIMEOUT_SECS;
-    let mut reset_all = false;
+    let mut format = Format::Text;
+    let mut home = None;
+    let mut project = None;
+    let mut timeout = default::TIMEOUT;
+    let mut all = false;
     let mut force = false;
     let mut args = args.into_iter();
     let _binary = args.next();
@@ -330,22 +337,22 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
                 let value = args
                     .next()
                     .ok_or_else(|| "--format requires a value".to_string())?;
-                format = parse_format(&value)?;
+                format = Format::parse(&value)?;
             }
             "--data-home" => {
-                data_home = Some(
+                home = Some(
                     args.next()
                         .ok_or_else(|| "--data-home requires a value".to_string())?,
                 );
             }
             "-p" | "--project" => {
-                project_override = Some(
+                project = Some(
                     args.next()
                         .ok_or_else(|| "--project requires a value".to_string())?,
                 );
             }
             "--all" => {
-                reset_all = true;
+                all = true;
             }
             "--force" => {
                 force = true;
@@ -354,22 +361,22 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
                 let value = args
                     .next()
                     .ok_or_else(|| "--inspect-timeout requires a value".to_string())?;
-                inspect_timeout_secs = parse_positive_seconds("--inspect-timeout", &value)?;
+                timeout = seconds("--inspect-timeout", &value)?;
             }
             value if value.starts_with("--config=") => {
                 config = Some(value.trim_start_matches("--config=").to_string());
             }
             value if value.starts_with("--format=") => {
-                format = parse_format(value.trim_start_matches("--format="))?;
+                format = Format::parse(value.trim_start_matches("--format="))?;
             }
             value if value.starts_with("--data-home=") => {
-                data_home = Some(value.trim_start_matches("--data-home=").to_string());
+                home = Some(value.trim_start_matches("--data-home=").to_string());
             }
             value if value.starts_with("--project=") => {
-                project_override = Some(value.trim_start_matches("--project=").to_string());
+                project = Some(value.trim_start_matches("--project=").to_string());
             }
             value if value.starts_with("--inspect-timeout=") => {
-                inspect_timeout_secs = parse_positive_seconds(
+                timeout = seconds(
                     "--inspect-timeout",
                     value.trim_start_matches("--inspect-timeout="),
                 )?;
@@ -385,72 +392,64 @@ fn parse(args: Vec<String>) -> Result<ParsedArgs, String> {
         }
     }
 
-    Ok(ParsedArgs {
+    Ok(Args {
         command,
         config,
         format,
-        data_home,
-        project_override,
-        inspect_timeout_secs,
-        reset_all,
+        home,
+        project,
+        timeout,
+        all,
         force,
     })
 }
 
-fn parse_format(value: &str) -> Result<OutputFormat, String> {
-    match value {
-        "text" => Ok(OutputFormat::Text),
-        "json" => Ok(OutputFormat::Json),
-        _ => Err(format!("unsupported output format: {value}")),
-    }
-}
-
-fn parse_positive_seconds(option: &str, value: &str) -> Result<u64, String> {
-    let seconds = value
+fn seconds(option: &str, value: &str) -> Result<u64, String> {
+    let parsed = value
         .parse::<u64>()
         .map_err(|_| format!("{option} requires a positive integer value"))?;
-    if seconds == 0 {
+    if parsed == 0 {
         return Err(format!("{option} requires a positive integer value"));
     }
-    Ok(seconds)
+    Ok(parsed)
 }
 
 #[doc(hidden)]
 pub mod __test {
-    use super::{parse, resolve_config_path, OutputFormat};
+    use super::Format;
 
     #[derive(Debug, Eq, PartialEq)]
-    pub struct ParseSummary {
+    pub struct Summary {
         pub command: Vec<String>,
         pub config: Option<String>,
         pub format: &'static str,
-        pub data_home: Option<String>,
+        pub home: Option<String>,
         pub project: Option<String>,
-        pub timeout_secs: u64,
-        pub reset_all: bool,
+        pub timeout: u64,
+        pub all: bool,
         pub force: bool,
     }
 
-    pub fn parse_args(args: Vec<&str>) -> Result<ParseSummary, String> {
-        let parsed = parse(args.into_iter().map(String::from).collect())?;
+    pub fn parse(args: Vec<&str>) -> Result<Summary, String> {
+        let parsed = super::parse(args.into_iter().map(String::from).collect())?;
         let format = match parsed.format {
-            OutputFormat::Text => "text",
-            OutputFormat::Json => "json",
+            Format::Text => "text",
+            Format::Json => "json",
         };
-        Ok(ParseSummary {
+        Ok(Summary {
             command: parsed.command,
             config: parsed.config,
             format,
-            data_home: parsed.data_home,
-            project: parsed.project_override,
-            timeout_secs: parsed.inspect_timeout_secs,
-            reset_all: parsed.reset_all,
+            home: parsed.home,
+            project: parsed.project,
+            timeout: parsed.timeout,
+            all: parsed.all,
             force: parsed.force,
         })
     }
 
-    pub fn resolve_config(explicit: Option<&str>) -> Result<(String, bool), String> {
-        let (path, discovered) = resolve_config_path(explicit)?;
+    pub fn locate(explicit: Option<&str>) -> Result<(String, bool), String> {
+        let (path, discovered) = super::locate(explicit)?;
         Ok((path.display().to_string(), discovered))
     }
 }

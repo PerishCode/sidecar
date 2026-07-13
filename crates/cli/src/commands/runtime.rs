@@ -1,38 +1,43 @@
-use super::render::BrokerRuntimeStatus;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use sidecar_core::plan::{Plan, Target};
 use sidecar_core::{broker, process, Paths};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Status {
+    pub(crate) pids: Vec<u32>,
+    pub(crate) endpoint: Option<String>,
+}
+
 #[derive(Clone, Debug)]
-pub(super) struct ReadySummary {
-    pub(super) role: String,
-    pub(super) endpoint: Option<String>,
-    pub(super) runtime_endpoint: Option<String>,
-    pub(super) instance_id: Option<String>,
+pub(crate) struct Ready {
+    pub(crate) role: String,
+    pub(crate) endpoint: Option<String>,
+    pub(crate) runtime: Option<String>,
+    pub(crate) instance: Option<String>,
 }
 
 #[derive(Default)]
-pub(super) struct RuntimeChain {
-    ready: BTreeMap<String, ReadySummary>,
+pub(crate) struct Chain {
+    ready: BTreeMap<String, Ready>,
 }
 
-impl RuntimeChain {
-    pub(super) fn from_state(paths: &Paths, plan: &Plan) -> Result<Self, String> {
-        let state = load_target_state(paths)?;
+impl Chain {
+    pub(crate) fn load(paths: &Paths, plan: &Plan) -> Result<Self, String> {
+        let saved = state::load(paths)?;
         let mut chain = Self::default();
         for target in &plan.targets {
-            if running_pids_for_target(paths, target)?.is_empty() {
+            if running(paths, target)?.is_empty() {
                 continue;
             }
-            let Some(entry) = state.get(&target.name) else {
+            let Some(entry) = saved.get(&target.name) else {
                 continue;
             };
-            let Some(ready) = ready_summary_from_state(entry) else {
+            let Some(ready) = ready(entry) else {
                 continue;
             };
             chain.ready.insert(target.name.clone(), ready);
@@ -40,14 +45,11 @@ impl RuntimeChain {
         Ok(chain)
     }
 
-    pub(super) fn record(&mut self, target_name: &str, ready: &ReadySummary) {
-        self.ready.insert(target_name.to_string(), ready.clone());
+    pub(crate) fn record(&mut self, name: &str, ready: &Ready) {
+        self.ready.insert(name.to_string(), ready.clone());
     }
 
-    pub(super) fn resolve_inherits(
-        &self,
-        target: &Target,
-    ) -> Result<Vec<(String, String)>, String> {
+    pub(crate) fn inherits(&self, target: &Target) -> Result<Vec<(String, String)>, String> {
         let mut env = Vec::new();
         for binding in &target.inherits {
             let Some((source, field)) = binding.from.split_once('.') else {
@@ -56,7 +58,7 @@ impl RuntimeChain {
                     binding.from
                 ));
             };
-            let value = inherited_value(self.ready.get(source), field)?;
+            let value = inherited(self.ready.get(source), field)?;
             if let Some(value) = value {
                 env.push((binding.name.clone(), value));
             }
@@ -65,23 +67,23 @@ impl RuntimeChain {
     }
 }
 
-fn inherited_value(ready: Option<&ReadySummary>, field: &str) -> Result<Option<String>, String> {
+fn inherited(ready: Option<&Ready>, field: &str) -> Result<Option<String>, String> {
     let Some(ready) = ready else {
         return Ok(None);
     };
     match field {
         "endpoint" => Ok(ready.endpoint.clone()),
-        "runtime_endpoint" => Ok(ready.runtime_endpoint.clone()),
-        "instance_id" => Ok(ready.instance_id.clone()),
+        "runtime_endpoint" => Ok(ready.runtime.clone()),
+        "instance_id" => Ok(ready.instance.clone()),
         other => Err(format!(
             "invalid inherits_env field {other:?}; expected endpoint|runtime_endpoint|instance_id"
         )),
     }
 }
 
-fn ready_summary_from_state(entry: &Value) -> Option<ReadySummary> {
+fn ready(entry: &Value) -> Option<Ready> {
     let ready = entry.get("ready")?;
-    Some(ReadySummary {
+    Some(Ready {
         role: ready
             .get("role")
             .and_then(Value::as_str)
@@ -91,24 +93,24 @@ fn ready_summary_from_state(entry: &Value) -> Option<ReadySummary> {
             .get("endpoint")
             .and_then(Value::as_str)
             .map(str::to_string),
-        runtime_endpoint: ready
+        runtime: ready
             .get("runtimeEndpoint")
             .and_then(Value::as_str)
             .map(str::to_string),
-        instance_id: ready
+        instance: ready
             .get("instanceId")
             .and_then(Value::as_str)
             .map(str::to_string),
     })
 }
 
-pub(super) fn wait_ready_from_log(
+pub(crate) fn watch(
     child: &mut Child,
-    log_path: &Path,
+    log: &Path,
     role: &str,
-    timeout_secs: u64,
-) -> Result<ReadySummary, String> {
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    timeout: u64,
+) -> Result<Ready, String> {
+    let deadline = Instant::now() + Duration::from_secs(timeout);
     while Instant::now() < deadline {
         if let Some(status) = child
             .try_wait()
@@ -116,25 +118,22 @@ pub(super) fn wait_ready_from_log(
         {
             return Err(format!(
                 "target exited before ready with status {status}; see {}",
-                log_path.display()
+                log.display()
             ));
         }
-        if let Some(ready) = read_ready_from_log(log_path, role)? {
+        if let Some(ready) = scan(log, role)? {
             return Ok(ready);
         }
         std::thread::sleep(Duration::from_millis(100));
     }
     Err(format!(
         "timed out waiting for ready role {role:?}; see {}",
-        log_path.display()
+        log.display()
     ))
 }
 
-fn read_ready_from_log(
-    log_path: &Path,
-    expected_role: &str,
-) -> Result<Option<ReadySummary>, String> {
-    let Ok(content) = fs::read_to_string(log_path) else {
+fn scan(log: &Path, expected: &str) -> Result<Option<Ready>, String> {
+    let Ok(content) = fs::read_to_string(log) else {
         return Ok(None);
     };
     for line in content.lines().rev() {
@@ -145,20 +144,20 @@ fn read_ready_from_log(
             .get("role")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if role != expected_role {
+        if role != expected {
             continue;
         }
-        return Ok(Some(ReadySummary {
+        return Ok(Some(Ready {
             role: role.to_string(),
             endpoint: value
                 .get("endpoint")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            runtime_endpoint: value
+            runtime: value
                 .get("runtime_endpoint")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            instance_id: value
+            instance: value
                 .get("instance_id")
                 .and_then(Value::as_str)
                 .map(str::to_string),
@@ -167,66 +166,75 @@ fn read_ready_from_log(
     Ok(None)
 }
 
-fn target_state_path(paths: &Paths) -> PathBuf {
-    paths.project.join("targets.json")
+pub(crate) mod state {
+    use super::Ready;
+    use serde_json::{Map, Value};
+    use sidecar_core::plan::Target;
+    use sidecar_core::Paths;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn path(paths: &Paths) -> PathBuf {
+        paths.project.join("targets.json")
+    }
+
+    pub(crate) fn load(paths: &Paths) -> Result<Map<String, Value>, String> {
+        let path = path(paths);
+        let Ok(text) = fs::read_to_string(&path) else {
+            return Ok(Map::new());
+        };
+        let value: Value = serde_json::from_str(&text)
+            .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
+        Ok(value.as_object().cloned().unwrap_or_default())
+    }
+
+    fn save(paths: &Paths, state: &Map<String, Value>) -> Result<(), String> {
+        fs::create_dir_all(&paths.project)
+            .map_err(|err| format!("failed to create {}: {err}", paths.project.display()))?;
+        let path = path(paths);
+        let text = serde_json::to_string_pretty(state).map_err(|err| err.to_string())?;
+        fs::write(&path, text).map_err(|err| format!("failed to write {}: {err}", path.display()))
+    }
+
+    pub(crate) fn record(
+        paths: &Paths,
+        target: &Target,
+        pid: u32,
+        ready: Option<&Ready>,
+        log: &Path,
+    ) -> Result<(), String> {
+        let mut state = load(paths)?;
+        state.insert(
+            target.name.clone(),
+            serde_json::json!({
+                "pid": pid,
+                "app": target.stamp.app,
+                "namespace": target.stamp.namespace,
+                "mode": target.stamp.mode,
+                "source": target.stamp.source,
+                "inspectSocket": target.socket,
+                "logPath": log.display().to_string(),
+                "ready": ready.map(|ready| serde_json::json!({
+                    "role": ready.role,
+                    "endpoint": ready.endpoint,
+                    "runtimeEndpoint": ready.runtime,
+                    "instanceId": ready.instance,
+                })),
+            }),
+        );
+        save(paths, &state)
+    }
+
+    pub(crate) fn remove(paths: &Paths, name: &str) -> Result<(), String> {
+        let mut state = load(paths)?;
+        state.remove(name);
+        save(paths, &state)
+    }
 }
 
-pub(super) fn load_target_state(paths: &Paths) -> Result<Map<String, Value>, String> {
-    let path = target_state_path(paths);
-    let Ok(text) = fs::read_to_string(&path) else {
-        return Ok(Map::new());
-    };
-    let value: Value = serde_json::from_str(&text)
-        .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
-    Ok(value.as_object().cloned().unwrap_or_default())
-}
-
-fn save_target_state(paths: &Paths, state: &Map<String, Value>) -> Result<(), String> {
-    fs::create_dir_all(&paths.project)
-        .map_err(|err| format!("failed to create {}: {err}", paths.project.display()))?;
-    let path = target_state_path(paths);
-    let text = serde_json::to_string_pretty(state).map_err(|err| err.to_string())?;
-    fs::write(&path, text).map_err(|err| format!("failed to write {}: {err}", path.display()))
-}
-
-pub(super) fn record_target_state(
-    paths: &Paths,
-    target: &Target,
-    pid: u32,
-    ready: Option<&ReadySummary>,
-    log_path: &Path,
-) -> Result<(), String> {
-    let mut state = load_target_state(paths)?;
-    state.insert(
-        target.name.clone(),
-        serde_json::json!({
-            "pid": pid,
-            "app": target.stamp.app,
-            "namespace": target.stamp.namespace,
-            "mode": target.stamp.mode,
-            "source": target.stamp.source,
-            "inspectSocket": target.socket,
-            "logPath": log_path.display().to_string(),
-            "ready": ready.map(|ready| serde_json::json!({
-                "role": ready.role,
-                "endpoint": ready.endpoint,
-                "runtimeEndpoint": ready.runtime_endpoint,
-                "instanceId": ready.instance_id,
-            })),
-        }),
-    );
-    save_target_state(paths, &state)
-}
-
-pub(super) fn remove_target_state(paths: &Paths, name: &str) -> Result<(), String> {
-    let mut state = load_target_state(paths)?;
-    state.remove(name);
-    save_target_state(paths, &state)
-}
-
-pub(super) fn running_pids_for_target(paths: &Paths, target: &Target) -> Result<Vec<u32>, String> {
+pub(crate) fn running(paths: &Paths, target: &Target) -> Result<Vec<u32>, String> {
     let mut pids = Vec::new();
-    if let Some(pid) = load_target_state(paths)?
+    if let Some(pid) = state::load(paths)?
         .get(&target.name)
         .and_then(|entry| entry.get("pid"))
         .and_then(Value::as_u64)
@@ -245,28 +253,28 @@ pub(super) fn running_pids_for_target(paths: &Paths, target: &Target) -> Result<
     Ok(pids)
 }
 
-pub(super) fn ensure_broker(plan: &Plan) -> Result<String, String> {
-    let identity = broker_identity(plan);
+pub(crate) fn ensure(plan: &Plan) -> Result<String, String> {
+    let identity = identity(plan);
     if let Some(addr) = identity.endpoint(Duration::from_millis(200))? {
         return Ok(format!("tcp://{addr}"));
     }
 
     let exe =
         std::env::current_exe().map_err(|err| format!("failed to resolve sidecar exe: {err}"))?;
-    let log_path = std::env::temp_dir().join(format!(
+    let path = std::env::temp_dir().join(format!(
         "sidecar-broker-{}-{}.log",
-        sanitize_log_part(&identity.project),
-        sanitize_log_part(&identity.namespace)
+        sanitize(&identity.project),
+        sanitize(&identity.namespace)
     ));
     let log = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
-        .open(&log_path)
-        .map_err(|err| format!("failed to open {}: {err}", log_path.display()))?;
+        .open(&path)
+        .map_err(|err| format!("failed to open {}: {err}", path.display()))?;
     let stderr = log
         .try_clone()
-        .map_err(|err| format!("failed to clone {}: {err}", log_path.display()))?;
+        .map_err(|err| format!("failed to clone {}: {err}", path.display()))?;
     let mut command = Command::new(exe);
     command
         .args(["runtime", "serve", &identity.project, &identity.namespace])
@@ -274,7 +282,7 @@ pub(super) fn ensure_broker(plan: &Plan) -> Result<String, String> {
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(stderr));
-    detach_process_group(&mut command);
+    detach(&mut command);
     let child = command
         .spawn()
         .map_err(|err| format!("failed to spawn broker: {err}"))?;
@@ -289,46 +297,46 @@ pub(super) fn ensure_broker(plan: &Plan) -> Result<String, String> {
     }
     Err(format!(
         "timed out waiting for broker runtime pid={pid}; see {}",
-        log_path.display()
+        path.display()
     ))
 }
 
-pub(super) fn broker_status(plan: &Plan) -> Result<BrokerRuntimeStatus, String> {
-    let identity = broker_identity(plan);
+pub(crate) fn status(plan: &Plan) -> Result<Status, String> {
+    let identity = identity(plan);
     let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
     let endpoint = identity.endpoint(Duration::from_millis(200))?;
-    Ok(BrokerRuntimeStatus {
+    Ok(Status {
         pids: brokers.into_iter().map(|broker| broker.pid).collect(),
         endpoint: endpoint.map(|addr| format!("tcp://{addr}")),
     })
 }
 
-pub(super) fn maybe_stop_broker(
+pub(crate) fn sweep(
     plan: &Plan,
     paths: &Paths,
     sidecar: Option<&str>,
     force: bool,
 ) -> Result<(), String> {
-    if sidecar.is_none() || running_target_count(plan, paths)? == 0 {
-        stop_broker(plan, force)?;
+    if sidecar.is_none() || active(plan, paths)? == 0 {
+        halt(plan, force)?;
     }
     Ok(())
 }
 
-pub(super) fn stop_broker(plan: &Plan, force: bool) -> Result<(), String> {
-    let identity = broker_identity(plan);
+pub(crate) fn halt(plan: &Plan, force: bool) -> Result<(), String> {
+    let identity = identity(plan);
     let brokers = process::Broker::discover(&identity.project, &identity.namespace)?;
     for hit in brokers {
         process::terminate(hit.pid)
             .map_err(|err| format!("failed to terminate broker pid {}: {err}", hit.pid))?;
-        wait_for_exit(hit.pid, force)?;
+        reap(hit.pid, force)?;
         println!("stopped broker pid={}", hit.pid);
     }
     Ok(())
 }
 
-pub(super) fn wait_for_exit(pid: u32, force: bool) -> Result<(), String> {
-    if wait_until_exit(pid, Duration::from_secs(2)) {
+pub(crate) fn reap(pid: u32, force: bool) -> Result<(), String> {
+    if wait(pid, Duration::from_secs(2)) {
         return Ok(());
     }
     if !force {
@@ -336,14 +344,14 @@ pub(super) fn wait_for_exit(pid: u32, force: bool) -> Result<(), String> {
             "pid {pid} did not exit after graceful stop; rerun with --force to kill it"
         ));
     }
-    force_kill(pid)?;
-    if wait_until_exit(pid, Duration::from_secs(2)) {
+    kill(pid)?;
+    if wait(pid, Duration::from_secs(2)) {
         return Ok(());
     }
     Err(format!("timed out waiting for pid {pid} to exit"))
 }
 
-pub(super) fn detach_process_group(command: &mut Command) {
+pub(crate) fn detach(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -364,21 +372,21 @@ pub(super) fn detach_process_group(command: &mut Command) {
     }
 }
 
-fn broker_identity(plan: &Plan) -> broker::Identity {
+fn identity(plan: &Plan) -> broker::Identity {
     broker::Identity::new(&plan.project, &plan.namespace)
 }
 
-fn running_target_count(plan: &Plan, paths: &Paths) -> Result<usize, String> {
+fn active(plan: &Plan, paths: &Paths) -> Result<usize, String> {
     let mut count = 0;
     for target in &plan.targets {
-        if !running_pids_for_target(paths, target)?.is_empty() {
+        if !running(paths, target)?.is_empty() {
             count += 1;
         }
     }
     Ok(count)
 }
 
-fn wait_until_exit(pid: u32, timeout: Duration) -> bool {
+fn wait(pid: u32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if !process::exists(pid) {
@@ -389,17 +397,17 @@ fn wait_until_exit(pid: u32, timeout: Duration) -> bool {
     !process::exists(pid)
 }
 
-fn force_kill(pid: u32) -> Result<(), String> {
+fn kill(pid: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
-        let process_group = format!("-{pid}");
-        let group_status = Command::new("kill")
-            .args(["-KILL", "--", &process_group])
+        let group = format!("-{pid}");
+        let swept = Command::new("kill")
+            .args(["-KILL", "--", &group])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .map_err(|err| format!("kill failed: {err}"))?;
-        if group_status.success() {
+        if swept.success() {
             return Ok(());
         }
         if !process::exists(pid) {
@@ -416,7 +424,7 @@ fn force_kill(pid: u32) -> Result<(), String> {
             Ok(())
         } else {
             Err(format!(
-                "kill -KILL -{pid} exited with status {group_status}; kill -KILL {pid} exited with status {status}"
+                "kill -KILL -{pid} exited with status {swept}; kill -KILL {pid} exited with status {status}"
             ))
         }
     }
@@ -445,7 +453,7 @@ fn force_kill(pid: u32) -> Result<(), String> {
     }
 }
 
-fn sanitize_log_part(value: &str) -> String {
+fn sanitize(value: &str) -> String {
     value
         .chars()
         .map(|ch| {

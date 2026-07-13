@@ -1,8 +1,8 @@
-use sidecar_cli::{cli_test, help_text};
+use sidecar_cli::{help, test::cli};
 
 #[test]
-fn help_boundary() {
-    let help = help_text();
+fn boundary() {
+    let help = help();
     assert!(help.contains("Product-neutral sidecar lifecycle and inspect IPC manager."));
     assert!(help.contains("consumers own product semantics"));
     assert!(help.contains("doctor   [--config <path>]"));
@@ -25,8 +25,8 @@ fn help_boundary() {
 }
 
 #[test]
-fn global_config() {
-    let parsed = cli_test::parse_args(vec![
+fn global() {
+    let parsed = cli::parse(vec![
         "sidecar",
         "doctor",
         "--config",
@@ -41,14 +41,14 @@ fn global_config() {
 }
 
 #[test]
-fn version_flags() {
-    let parsed = cli_test::parse_args(vec!["sidecar", "--version"]).unwrap();
+fn version() {
+    let parsed = cli::parse(vec!["sidecar", "--version"]).unwrap();
     assert_eq!(parsed.command, vec!["--version"]);
 }
 
 #[test]
-fn inspect_payload() {
-    let parsed = cli_test::parse_args(vec![
+fn payload() {
+    let parsed = cli::parse(vec![
         "sidecar",
         "inspect",
         "controller",
@@ -63,12 +63,12 @@ fn inspect_payload() {
         vec!["inspect", "controller", "host", "{\"window\":\"main\"}"]
     );
     assert_eq!(parsed.config.as_deref(), Some("x.toml"));
-    assert_eq!(parsed.timeout_secs, 5);
+    assert_eq!(parsed.timeout, 5);
 }
 
 #[test]
-fn inspect_timeout() {
-    let parsed = cli_test::parse_args(vec![
+fn timeout() {
+    let parsed = cli::parse(vec![
         "sidecar",
         "inspect",
         "controller",
@@ -81,12 +81,12 @@ fn inspect_timeout() {
     ])
     .unwrap();
 
-    assert_eq!(parsed.timeout_secs, 60);
+    assert_eq!(parsed.timeout, 60);
 }
 
 #[test]
-fn timeout_zero() {
-    let error = cli_test::parse_args(vec![
+fn zero() {
+    let error = cli::parse(vec![
         "sidecar",
         "inspect",
         "controller",
@@ -101,8 +101,8 @@ fn timeout_zero() {
 }
 
 #[test]
-fn project_flags() {
-    let parsed = cli_test::parse_args(vec![
+fn project() {
+    let parsed = cli::parse(vec![
         "sidecar",
         "-p",
         "staging",
@@ -112,7 +112,7 @@ fn project_flags() {
     .unwrap();
     assert_eq!(parsed.project.as_deref(), Some("staging"));
 
-    let parsed = cli_test::parse_args(vec![
+    let parsed = cli::parse(vec![
         "sidecar",
         "--project=prod",
         "list",
@@ -124,8 +124,8 @@ fn project_flags() {
 }
 
 #[test]
-fn reset_all() {
-    let parsed = cli_test::parse_args(vec![
+fn reset() {
+    let parsed = cli::parse(vec![
         "sidecar",
         "--data-home",
         "/var/sidecar",
@@ -135,14 +135,14 @@ fn reset_all() {
         "x.toml",
     ])
     .unwrap();
-    assert_eq!(parsed.data_home.as_deref(), Some("/var/sidecar"));
-    assert!(parsed.reset_all);
+    assert_eq!(parsed.home.as_deref(), Some("/var/sidecar"));
+    assert!(parsed.all);
     assert!(!parsed.force);
 }
 
 #[test]
-fn force_flag() {
-    let parsed = cli_test::parse_args(vec![
+fn force() {
+    let parsed = cli::parse(vec![
         "sidecar", "stop", "api", "--force", "--config", "x.toml",
     ])
     .unwrap();

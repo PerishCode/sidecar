@@ -1,16 +1,17 @@
-mod broker_runtime;
+mod broker;
 mod cli;
 mod commands;
 mod output;
 mod update;
 
 #[doc(hidden)]
-pub use broker_runtime::__test as broker_runtime_test;
-#[doc(hidden)]
-pub use cli::__test as cli_test;
-pub use cli::{channel, help_text, version};
-#[doc(hidden)]
-pub use update::__test as update_test;
+pub mod test {
+    pub use crate::broker::__test as broker;
+    pub use crate::cli::__test as cli;
+    pub use crate::update::__test as update;
+}
+
+pub use cli::{channel, help, version};
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
     cli::run(args)
