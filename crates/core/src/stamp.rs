@@ -1,9 +1,13 @@
-pub const STAMP_FLAG: &str = "--sidecar-stamp";
-pub const STAMP_VERSION: u8 = 1;
+use crate::percent;
 
-pub const DEFAULT_NAMESPACE: &str = "default";
-pub const DEFAULT_MODE: &str = "dev";
-pub const DEFAULT_SOURCE: &str = "tool:sidecar";
+pub const FLAG: &str = "--sidecar-stamp";
+pub const VERSION: u8 = 1;
+
+pub mod default {
+    pub const NAMESPACE: &str = "default";
+    pub const MODE: &str = "dev";
+    pub const SOURCE: &str = "tool:sidecar";
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Stamp {
@@ -17,20 +21,20 @@ pub struct Stamp {
 
 impl Stamp {
     pub fn args(&self) -> Vec<String> {
-        vec![format!("{STAMP_FLAG}={}", encode(self))]
+        vec![format!("{FLAG}={}", encode(self))]
     }
 
-    pub fn with_endpoint(&self, endpoint: impl Into<String>) -> Self {
+    pub fn at(&self, endpoint: impl Into<String>) -> Self {
         let mut stamp = self.clone();
         stamp.endpoint = Some(endpoint.into());
         stamp
     }
 }
 
-pub fn read_flag(args: &[String]) -> Option<String> {
-    let prefix = format!("{STAMP_FLAG}=");
+pub fn flag(args: &[String]) -> Option<String> {
+    let prefix = format!("{FLAG}=");
     for (index, value) in args.iter().enumerate() {
-        if value == STAMP_FLAG {
+        if value == FLAG {
             return args.get(index + 1).cloned();
         }
         if let Some(stripped) = value.strip_prefix(&prefix) {
@@ -40,22 +44,22 @@ pub fn read_flag(args: &[String]) -> Option<String> {
     None
 }
 
-pub fn read_stamp(args: &[String]) -> Option<Stamp> {
-    read_flag(args).and_then(|value| decode(&value).ok())
+pub fn read(args: &[String]) -> Option<Stamp> {
+    flag(args).and_then(|value| decode(&value).ok())
 }
 
 pub fn encode(stamp: &Stamp) -> String {
     let mut encoded = format!(
         "v={};a={};n={};m={};s={}",
         stamp.version,
-        encode_value(&stamp.app),
-        encode_value(&stamp.namespace),
-        encode_value(&stamp.mode),
-        encode_value(&stamp.source),
+        percent::encode(&stamp.app),
+        percent::encode(&stamp.namespace),
+        percent::encode(&stamp.mode),
+        percent::encode(&stamp.source),
     );
     if let Some(endpoint) = &stamp.endpoint {
         encoded.push_str(";e=");
-        encoded.push_str(&encode_value(endpoint));
+        encoded.push_str(&percent::encode(endpoint));
     }
     encoded
 }
@@ -69,10 +73,10 @@ pub fn decode(value: &str) -> Result<Stamp, String> {
     let mut endpoint = None;
 
     for part in value.split(';') {
-        let Some((key, raw_value)) = part.split_once('=') else {
+        let Some((key, raw)) = part.split_once('=') else {
             return Err("stamp segment must use key=value form".to_string());
         };
-        let decoded = decode_value(raw_value)?;
+        let decoded = percent::decode(raw)?;
         match key {
             "v" if version.is_none() => version = Some(vetted(&decoded)?),
             "a" if app.is_none() => app = Some(decoded),
@@ -105,68 +109,8 @@ fn vetted(decoded: &str) -> Result<u8, String> {
     let parsed = decoded
         .parse::<u8>()
         .map_err(|_| "stamp version must be an integer".to_string())?;
-    if parsed != STAMP_VERSION {
+    if parsed != VERSION {
         return Err(format!("unsupported stamp version {parsed}"));
     }
     Ok(parsed)
-}
-
-pub(crate) fn encode_value(value: &str) -> String {
-    let mut encoded = String::new();
-    for byte in value.bytes() {
-        if is_unreserved(byte) {
-            encoded.push(byte as char);
-        } else {
-            encoded.push('%');
-            encoded.push(hex_char(byte >> 4));
-            encoded.push(hex_char(byte & 0x0f));
-        }
-    }
-    encoded
-}
-
-pub(crate) fn decode_value(value: &str) -> Result<String, String> {
-    let bytes = value.as_bytes();
-    let mut decoded = Vec::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'%' => {
-                let Some(high) = bytes.get(index + 1).and_then(|byte| hex_value(*byte)) else {
-                    return Err("stamp value contains invalid percent escape".to_string());
-                };
-                let Some(low) = bytes.get(index + 2).and_then(|byte| hex_value(*byte)) else {
-                    return Err("stamp value contains invalid percent escape".to_string());
-                };
-                decoded.push((high << 4) | low);
-                index += 3;
-            }
-            byte => {
-                decoded.push(byte);
-                index += 1;
-            }
-        }
-    }
-    String::from_utf8(decoded).map_err(|_| "stamp value is not valid UTF-8".to_string())
-}
-
-fn is_unreserved(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_')
-}
-
-fn hex_char(value: u8) -> char {
-    match value {
-        0..=9 => (b'0' + value) as char,
-        10..=15 => (b'A' + value - 10) as char,
-        _ => unreachable!(),
-    }
-}
-
-fn hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
 }

@@ -1,32 +1,27 @@
-#[cfg(any(target_os = "linux", windows))]
-use std::net::Ipv6Addr;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
-pub fn tcp_listeners_for_pid(pid: u32) -> Result<Vec<SocketAddr>, String> {
-    platform_listeners(pid)
-}
+use std::net::SocketAddr;
 
 #[cfg(target_os = "linux")]
-fn platform_listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
-    linux::tcp_listeners_for_pid(pid)
+pub fn listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
+    linux::listeners(pid)
 }
 
 #[cfg(target_os = "macos")]
-fn platform_listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
-    macos::tcp_listeners_for_pid(pid)
+pub fn listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
+    macos::listeners(pid)
 }
 
 #[cfg(windows)]
-fn platform_listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
-    windows::tcp_listeners_for_pid(pid)
+pub fn listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
+    windows::listeners(pid)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn platform_listeners(_pid: u32) -> Result<Vec<SocketAddr>, String> {
+pub fn listeners(_pid: u32) -> Result<Vec<SocketAddr>, String> {
     Err("TCP listener discovery is not implemented on this platform".to_string())
 }
 
-fn sort_dedup(mut addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+fn dedup(mut addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
     addrs.sort();
     addrs.dedup();
     addrs
@@ -34,13 +29,13 @@ fn sort_dedup(mut addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::{parse_linux_tcp_table, sort_dedup};
+    use super::{dedup, table};
     use std::collections::BTreeSet;
     use std::fs;
     use std::net::SocketAddr;
 
-    pub fn tcp_listeners_for_pid(pid: u32) -> Result<Vec<SocketAddr>, String> {
-        let inodes = socket_inodes_for_pid(pid)?;
+    pub fn listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
+        let inodes = inodes(pid)?;
         if inodes.is_empty() {
             return Ok(Vec::new());
         }
@@ -48,12 +43,12 @@ mod linux {
         for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
             let text =
                 fs::read_to_string(path).map_err(|err| format!("failed to read {path}: {err}"))?;
-            addrs.extend(parse_linux_tcp_table(&text, &inodes)?);
+            addrs.extend(table(&text, &inodes)?);
         }
-        Ok(sort_dedup(addrs))
+        Ok(dedup(addrs))
     }
 
-    fn socket_inodes_for_pid(pid: u32) -> Result<BTreeSet<String>, String> {
+    fn inodes(pid: u32) -> Result<BTreeSet<String>, String> {
         let dir = format!("/proc/{pid}/fd");
         let entries = fs::read_dir(&dir).map_err(|err| format!("failed to read {dir}: {err}"))?;
         let mut inodes = BTreeSet::new();
@@ -77,7 +72,7 @@ mod linux {
 
 #[cfg(target_os = "linux")]
 #[doc(hidden)]
-pub fn parse_linux_tcp_table(
+pub fn table(
     text: &str,
     inodes: &std::collections::BTreeSet<String>,
 ) -> Result<Vec<SocketAddr>, String> {
@@ -90,13 +85,15 @@ pub fn parse_linux_tcp_table(
         if columns[3] != "0A" || !inodes.contains(columns[9]) {
             continue;
         }
-        addrs.push(parse_linux_local_address(columns[1])?);
+        addrs.push(address(columns[1])?);
     }
     Ok(addrs)
 }
 
 #[cfg(target_os = "linux")]
-fn parse_linux_local_address(value: &str) -> Result<SocketAddr, String> {
+fn address(value: &str) -> Result<SocketAddr, String> {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
     let (addr, port) = value
         .split_once(':')
         .ok_or_else(|| format!("invalid /proc tcp local_address {value:?}"))?;
@@ -125,11 +122,11 @@ fn parse_linux_local_address(value: &str) -> Result<SocketAddr, String> {
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use super::{parse_lsof_listeners, sort_dedup};
+    use super::dedup;
     use std::net::SocketAddr;
     use std::process::Command;
 
-    pub fn tcp_listeners_for_pid(pid: u32) -> Result<Vec<SocketAddr>, String> {
+    pub fn listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
         let output = Command::new("lsof")
             .args([
                 "-Pan",
@@ -148,49 +145,54 @@ mod macos {
             ));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(sort_dedup(parse_lsof_listeners(&stdout)))
+        Ok(dedup(super::lsof::listeners(&stdout)))
     }
 }
 
-#[doc(hidden)]
-pub fn parse_lsof_listeners(text: &str) -> Vec<SocketAddr> {
-    text.lines()
-        .filter(|line| line.contains("(LISTEN)"))
-        .filter_map(|line| line.split_whitespace().find_map(parse_lsof_endpoint))
-        .collect()
-}
+pub mod lsof {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-fn parse_lsof_endpoint(value: &str) -> Option<SocketAddr> {
-    let endpoint = value.strip_prefix("TCP").unwrap_or(value);
-    let endpoint = endpoint.trim_start_matches('*').trim_start_matches('@');
-    if let Ok(addr) = endpoint.parse::<SocketAddr>() {
-        return Some(addr);
+    #[doc(hidden)]
+    pub fn listeners(text: &str) -> Vec<SocketAddr> {
+        text.lines()
+            .filter(|line| line.contains("(LISTEN)"))
+            .filter_map(|line| line.split_whitespace().find_map(endpoint))
+            .collect()
     }
-    let port = endpoint.rsplit_once(':')?.1.parse::<u16>().ok()?;
-    Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
+
+    fn endpoint(value: &str) -> Option<SocketAddr> {
+        let endpoint = value.strip_prefix("TCP").unwrap_or(value);
+        let endpoint = endpoint.trim_start_matches('*').trim_start_matches('@');
+        if let Ok(addr) = endpoint.parse::<SocketAddr>() {
+            return Some(addr);
+        }
+        let port = endpoint.rsplit_once(':')?.1.parse::<u16>().ok()?;
+        Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port))
+    }
 }
 
 #[cfg(windows)]
 mod windows {
-    use super::{sort_dedup, windows_port, IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+    use super::{dedup, port};
     use std::ffi::c_void;
     use std::mem::size_of;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
     use std::slice;
     use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, NO_ERROR};
     use windows_sys::Win32::NetworkManagement::IpHelper::{
-        GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
-        MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+        GetExtendedTcpTable, MIB_TCP6TABLE_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
+        TCP_TABLE_OWNER_PID_LISTENER,
     };
     use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 
-    pub fn tcp_listeners_for_pid(pid: u32) -> Result<Vec<SocketAddr>, String> {
-        let mut addrs = ipv4_listeners(pid)?;
-        addrs.extend(ipv6_listeners(pid)?);
-        Ok(sort_dedup(addrs))
+    pub fn listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
+        let mut addrs = ipv4(pid)?;
+        addrs.extend(ipv6(pid)?);
+        Ok(dedup(addrs))
     }
 
-    fn ipv4_listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
-        let table = query_table(AF_INET as u32)?;
+    fn ipv4(pid: u32) -> Result<Vec<SocketAddr>, String> {
+        let table = query(AF_INET as u32)?;
         if table.len() < size_of::<MIB_TCPTABLE_OWNER_PID>() {
             return Ok(Vec::new());
         }
@@ -201,12 +203,17 @@ mod windows {
         Ok(rows
             .iter()
             .filter(|row| row.dwOwningPid == pid)
-            .map(ipv4_addr)
+            .map(|row| {
+                SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes())),
+                    port(row.dwLocalPort),
+                )
+            })
             .collect())
     }
 
-    fn ipv6_listeners(pid: u32) -> Result<Vec<SocketAddr>, String> {
-        let table = query_table(AF_INET6 as u32)?;
+    fn ipv6(pid: u32) -> Result<Vec<SocketAddr>, String> {
+        let table = query(AF_INET6 as u32)?;
         if table.len() < size_of::<MIB_TCP6TABLE_OWNER_PID>() {
             return Ok(Vec::new());
         }
@@ -217,18 +224,23 @@ mod windows {
         Ok(rows
             .iter()
             .filter(|row| row.dwOwningPid == pid)
-            .map(ipv6_addr)
+            .map(|row| {
+                SocketAddr::new(
+                    IpAddr::V6(Ipv6Addr::from(row.ucLocalAddr)),
+                    port(row.dwLocalPort),
+                )
+            })
             .collect())
     }
 
-    fn query_table(address_family: u32) -> Result<Vec<u8>, String> {
+    fn query(family: u32) -> Result<Vec<u8>, String> {
         let mut size = 0u32;
         let first = unsafe {
             GetExtendedTcpTable(
                 std::ptr::null_mut(),
                 &mut size,
                 0,
-                address_family,
+                family,
                 TCP_TABLE_OWNER_PID_LISTENER,
                 0,
             )
@@ -242,7 +254,7 @@ mod windows {
                 table.as_mut_ptr() as *mut c_void,
                 &mut size,
                 0,
-                address_family,
+                family,
                 TCP_TABLE_OWNER_PID_LISTENER,
                 0,
             )
@@ -252,23 +264,9 @@ mod windows {
         }
         Ok(table)
     }
-
-    fn ipv4_addr(row: &MIB_TCPROW_OWNER_PID) -> SocketAddr {
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes())),
-            windows_port(row.dwLocalPort),
-        )
-    }
-
-    fn ipv6_addr(row: &MIB_TCP6ROW_OWNER_PID) -> SocketAddr {
-        SocketAddr::new(
-            IpAddr::V6(Ipv6Addr::from(row.ucLocalAddr)),
-            windows_port(row.dwLocalPort),
-        )
-    }
 }
 
 #[doc(hidden)]
-pub fn windows_port(value: u32) -> u16 {
+pub fn port(value: u32) -> u16 {
     u16::from_be((value & 0xffff) as u16)
 }

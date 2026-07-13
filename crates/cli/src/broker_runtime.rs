@@ -1,9 +1,9 @@
-use sidecar_core::{validate_broker_hello, BrokerIdentity, BrokerRequest, BrokerResponse};
+use sidecar_core::broker;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 
 pub(crate) fn serve(project: &str, namespace: &str) -> Result<(), String> {
-    let identity = BrokerIdentity::new(project, namespace);
+    let identity = broker::Identity::new(project, namespace);
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|err| format!("failed to bind broker listener: {err}"))?;
     let addr = listener
@@ -20,14 +20,14 @@ pub(crate) fn serve(project: &str, namespace: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn accept(stream: TcpStream, identity: &BrokerIdentity) {
+fn accept(stream: TcpStream, identity: &broker::Identity) {
     let identity = identity.clone();
     std::thread::spawn(move || {
         let _ = handle_client(stream, &identity);
     });
 }
 
-fn handle_client(mut stream: TcpStream, identity: &BrokerIdentity) -> Result<(), String> {
+fn handle_client(mut stream: TcpStream, identity: &broker::Identity) -> Result<(), String> {
     let mut line = String::new();
     {
         let mut reader = BufReader::new(
@@ -42,11 +42,11 @@ fn handle_client(mut stream: TcpStream, identity: &BrokerIdentity) -> Result<(),
     if line.trim().is_empty() {
         return Ok(());
     }
-    let request: BrokerRequest = serde_json::from_str(line.trim())
+    let request: broker::Request = serde_json::from_str(line.trim())
         .map_err(|err| format!("failed to parse broker request: {err}"))?;
-    let response = match validate_broker_hello(&request, identity) {
+    let response = match identity.validate(&request) {
         Ok(response) => response,
-        Err(message) => BrokerResponse::HelloError { message },
+        Err(message) => broker::Response::Error { message },
     };
     let text = serde_json::to_string(&response).map_err(|err| err.to_string())?;
     stream
@@ -58,7 +58,7 @@ fn handle_client(mut stream: TcpStream, identity: &BrokerIdentity) -> Result<(),
 #[doc(hidden)]
 pub mod __test {
     use super::handle_client;
-    use sidecar_core::BrokerIdentity;
+    use sidecar_core::broker;
     use std::io::{BufRead, BufReader, Write};
     use std::net::{TcpListener, TcpStream};
 
@@ -68,7 +68,7 @@ pub mod __test {
         let addr = listener.local_addr().map_err(|err| err.to_string())?;
         let worker = std::thread::spawn(move || {
             let (stream, _) = listener.accept().map_err(|err| err.to_string())?;
-            handle_client(stream, &BrokerIdentity::new("sidecar", "default"))
+            handle_client(stream, &broker::Identity::new("sidecar", "default"))
         });
 
         let mut stream = TcpStream::connect(addr).map_err(|err| err.to_string())?;

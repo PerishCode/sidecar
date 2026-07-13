@@ -1,5 +1,6 @@
 use crate::cli::OutputFormat;
-use sidecar_core::{AppPlan, Diagnostic, ExecutionPlan, Severity, SidecarPlan, TargetPlan};
+use sidecar_core::plan::{App, Inherit, Plan, Sidecar, Target};
+use sidecar_core::{Diagnostic, Severity};
 
 pub(crate) fn print_diagnostics(
     diagnostics: &[Diagnostic],
@@ -48,14 +49,14 @@ fn print_diagnostics_json(diagnostics: &[Diagnostic]) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn print_plan(plan: &ExecutionPlan, format: OutputFormat) -> Result<(), String> {
+pub(crate) fn print_plan(plan: &Plan, format: OutputFormat) -> Result<(), String> {
     match format {
         OutputFormat::Text => print_plan_text(plan),
         OutputFormat::Json => print_plan_json(plan),
     }
 }
 
-fn print_plan_text(plan: &ExecutionPlan) -> Result<(), String> {
+fn print_plan_text(plan: &Plan) -> Result<(), String> {
     println!("project: {} (namespace: {})", plan.project, plan.namespace);
     match &plan.app {
         Some(app) => println!(
@@ -70,16 +71,16 @@ fn print_plan_text(plan: &ExecutionPlan) -> Result<(), String> {
     Ok(())
 }
 
-fn print_targets_text(plan: &ExecutionPlan) {
+fn print_targets_text(plan: &Plan) {
     println!("targets: {}", plan.targets.len());
     for target in &plan.targets {
         println!(
             "- {} [mode={}] -> {}",
             target.name,
             target.stamp.mode,
-            command_line(&target.command, &target.spawn_args())
+            command_line(&target.command, &target.argv())
         );
-        if let Some(socket) = &target.inspect_socket {
+        if let Some(socket) = &target.socket {
             println!("    inspect_socket: {socket}");
         }
         if let Some(ready) = &target.ready {
@@ -88,14 +89,14 @@ fn print_targets_text(plan: &ExecutionPlan) {
     }
 }
 
-fn print_endpoints_text(plan: &ExecutionPlan) {
-    println!("inspect endpoints: {}", plan.inspect_endpoints.len());
-    for endpoint in &plan.inspect_endpoints {
+fn print_endpoints_text(plan: &Plan) {
+    println!("inspect endpoints: {}", plan.endpoints.len());
+    for endpoint in &plan.endpoints {
         println!("- {} {} {}", endpoint.name, endpoint.kind, endpoint.url);
     }
 }
 
-fn print_plan_json(plan: &ExecutionPlan) -> Result<(), String> {
+fn print_plan_json(plan: &Plan) -> Result<(), String> {
     let value = serde_json::json!({
         "project": plan.project,
         "namespace": plan.namespace,
@@ -103,7 +104,7 @@ fn print_plan_json(plan: &ExecutionPlan) -> Result<(), String> {
         "app": plan.app.as_ref().map(app_json),
         "sidecars": plan.sidecars.iter().map(sidecar_json).collect::<Vec<_>>(),
         "targets": plan.targets.iter().map(target_json).collect::<Vec<_>>(),
-        "inspectEndpoints": plan.inspect_endpoints.iter().map(|endpoint| serde_json::json!({
+        "inspectEndpoints": plan.endpoints.iter().map(|endpoint| serde_json::json!({
             "name": endpoint.name,
             "kind": endpoint.kind,
             "url": endpoint.url,
@@ -130,21 +131,21 @@ fn command_line(command: &str, args: &[String]) -> String {
         .join(" ")
 }
 
-fn app_json(app: &AppPlan) -> serde_json::Value {
+fn app_json(app: &App) -> serde_json::Value {
     serde_json::json!({
         "name": app.name,
         "command": app.command,
         "args": app.args,
         "cwd": app.cwd,
         "stamp": stamp_json(&app.stamp),
-        "spawnArgs": app.spawn_args(),
-        "inheritsEnv": inherits_json(&app.inherits_env),
-        "inspectSocket": app.inspect_socket,
-        "healthUrl": app.health_url,
+        "spawnArgs": app.argv(),
+        "inheritsEnv": inherits_json(&app.inherits),
+        "inspectSocket": app.socket,
+        "healthUrl": app.health,
     })
 }
 
-fn target_json(target: &TargetPlan) -> serde_json::Value {
+fn target_json(target: &Target) -> serde_json::Value {
     serde_json::json!({
         "name": target.name,
         "kind": format!("{:?}", target.kind).to_lowercase(),
@@ -152,28 +153,28 @@ fn target_json(target: &TargetPlan) -> serde_json::Value {
         "args": target.args,
         "cwd": target.cwd,
         "stamp": stamp_json(&target.stamp),
-        "spawnArgs": target.spawn_args(),
-        "inheritsEnv": inherits_json(&target.inherits_env),
-        "inspectSocket": target.inspect_socket,
-        "healthUrl": target.health_url,
+        "spawnArgs": target.argv(),
+        "inheritsEnv": inherits_json(&target.inherits),
+        "inspectSocket": target.socket,
+        "healthUrl": target.health,
         "ready": target.ready.as_ref().map(|ready| serde_json::json!({
             "role": ready.role,
-            "timeoutSecs": ready.timeout_secs,
+            "timeoutSecs": ready.timeout,
         })),
     })
 }
 
-fn sidecar_json(sidecar: &SidecarPlan) -> serde_json::Value {
+fn sidecar_json(sidecar: &Sidecar) -> serde_json::Value {
     serde_json::json!({
         "name": sidecar.name,
         "command": sidecar.command,
         "args": sidecar.args,
         "cwd": sidecar.cwd,
         "stamp": stamp_json(&sidecar.stamp),
-        "spawnArgs": sidecar.spawn_args(),
-        "inheritsEnv": inherits_json(&sidecar.inherits_env),
-        "inspectSocket": sidecar.inspect_socket,
-        "healthUrl": sidecar.health_url,
+        "spawnArgs": sidecar.argv(),
+        "inheritsEnv": inherits_json(&sidecar.inherits),
+        "inspectSocket": sidecar.socket,
+        "healthUrl": sidecar.health,
     })
 }
 
@@ -188,7 +189,7 @@ fn stamp_json(stamp: &sidecar_core::Stamp) -> serde_json::Value {
     })
 }
 
-fn inherits_json(bindings: &[sidecar_core::InheritEnvPlan]) -> Vec<serde_json::Value> {
+fn inherits_json(bindings: &[Inherit]) -> Vec<serde_json::Value> {
     bindings
         .iter()
         .map(|binding| {

@@ -1,12 +1,9 @@
-use sidecar_core::{
-    broker_hello_request, decode_broker_identity, encode_broker_identity, probe_broker_endpoint,
-    read_broker_flag, read_broker_identity, validate_broker_hello, BrokerIdentity, BrokerRequest,
-    BrokerResponse,
-};
+use sidecar_core::broker;
+use sidecar_core::broker::{Identity, Request, Response};
 
 #[test]
-fn canonical_flag() {
-    let identity = BrokerIdentity::new("sidecar", "default");
+fn canonical() {
+    let identity = Identity::new("sidecar", "default");
     assert_eq!(
         identity.args(),
         vec!["--sidecar-broker=p=sidecar;n=default;s=tool%3Asidecar"]
@@ -14,10 +11,10 @@ fn canonical_flag() {
 }
 
 #[test]
-fn flag_forms() {
+fn forms() {
     let inline = vec!["--sidecar-broker=p=app;n=default;s=tool%3Asidecar".to_string()];
     assert_eq!(
-        read_broker_flag(&inline).as_deref(),
+        broker::flag(&inline).as_deref(),
         Some("p=app;n=default;s=tool%3Asidecar")
     );
 
@@ -26,63 +23,63 @@ fn flag_forms() {
         "p=app;n=prod;s=tool%3Asidecar".to_string(),
     ];
     assert_eq!(
-        read_broker_flag(&separated).as_deref(),
+        broker::flag(&separated).as_deref(),
         Some("p=app;n=prod;s=tool%3Asidecar")
     );
 }
 
 #[test]
-fn required_keys() {
-    assert!(decode_broker_identity("p=app;n=default").is_err());
+fn required() {
+    assert!(Identity::decode("p=app;n=default").is_err());
 
     let args = vec!["--sidecar-broker=p=app;n=default;s=tool%3Asidecar".into()];
-    let identity = read_broker_identity(&args).unwrap();
+    let identity = broker::read(&args).unwrap();
     assert_eq!(identity.project, "app");
     assert_eq!(identity.namespace, "default");
     assert_eq!(identity.source, "tool:sidecar");
 }
 
 #[test]
-fn reserved_chars() {
-    let identity = BrokerIdentity {
+fn reserved() {
+    let identity = Identity {
         project: "local app".into(),
         namespace: "dev;blue".into(),
         source: "tool:%sidecar".into(),
     };
-    let encoded = encode_broker_identity(&identity);
+    let encoded = identity.encode();
     assert_eq!(encoded, "p=local%20app;n=dev%3Bblue;s=tool%3A%25sidecar");
-    assert_eq!(decode_broker_identity(&encoded).unwrap(), identity);
+    assert_eq!(Identity::decode(&encoded).unwrap(), identity);
 }
 
 #[test]
-fn bad_keys() {
-    assert!(decode_broker_identity("p=app;n=default;s=tool%3Asidecar;x=no").is_err());
-    assert!(decode_broker_identity("p=app;p=app2;n=default;s=tool%3Asidecar").is_err());
+fn invalid() {
+    assert!(Identity::decode("p=app;n=default;s=tool%3Asidecar;x=no").is_err());
+    assert!(Identity::decode("p=app;p=app2;n=default;s=tool%3Asidecar").is_err());
 }
 
 #[test]
-fn hello_protocol() {
-    let identity = BrokerIdentity::new("sidecar", "default");
-    let request = broker_hello_request(&identity);
+fn hello() {
+    let identity = Identity::new("sidecar", "default");
+    let request = identity.hello();
     assert_eq!(
-        validate_broker_hello(&request, &identity).unwrap(),
-        BrokerResponse::HelloOk {
+        identity.validate(&request).unwrap(),
+        Response::Ok {
             protocol: 1,
             project: "sidecar".into(),
             namespace: "default".into(),
         }
     );
 
-    let wrong_namespace = BrokerRequest::Hello {
+    let mismatched = Request::Hello {
         protocol: 1,
         project: "sidecar".into(),
         namespace: "other".into(),
     };
-    assert!(validate_broker_hello(&wrong_namespace, &identity).is_err());
+    assert!(identity.validate(&mismatched).is_err());
 }
 
 #[test]
-fn probe_endpoint() {
+fn probe() {
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
     use std::time::Duration;
@@ -107,7 +104,7 @@ fn probe_endpoint() {
             .unwrap();
     });
 
-    let identity = BrokerIdentity::new("sidecar", "default");
-    assert!(probe_broker_endpoint(addr, &identity, Duration::from_secs(2)).unwrap());
+    let identity = Identity::new("sidecar", "default");
+    assert!(identity.probe(addr, Duration::from_secs(2)).unwrap());
     worker.join().unwrap();
 }

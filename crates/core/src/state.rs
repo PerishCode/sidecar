@@ -1,21 +1,20 @@
 use crate::config::Manifest;
 use crate::diagnostics::Diagnostic;
-use crate::plan::ExecutionPlan;
-use crate::socket::SocketEndpoint;
+use crate::plan::Plan;
+use crate::socket;
 use std::collections::HashSet;
-use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
-pub struct DevState {
-    pub config_path: PathBuf,
+pub struct State {
+    pub path: PathBuf,
     pub config: Manifest,
 }
 
 #[derive(Debug)]
-pub enum LoadError {
+pub enum Error {
     Read {
         path: PathBuf,
         source: std::io::Error,
@@ -26,45 +25,42 @@ pub enum LoadError {
     },
 }
 
-impl DevState {
-    pub fn from_config_file(path: impl AsRef<Path>) -> Result<Self, LoadError> {
+impl State {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref().to_path_buf();
-        let text = fs::read_to_string(&path).map_err(|source| LoadError::Read {
+        let text = fs::read_to_string(&path).map_err(|source| Error::Read {
             path: path.clone(),
             source,
         })?;
-        let config = toml::from_str(&text).map_err(|source| LoadError::Parse {
+        let config = toml::from_str(&text).map_err(|source| Error::Parse {
             path: path.clone(),
             source: Box::new(source),
         })?;
-        Ok(Self {
-            config_path: path,
-            config,
-        })
+        Ok(Self { path, config })
     }
 
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        validate_required_name(&mut diagnostics, "project.name", &self.config.project.name);
-        validate_required_name(
+        require(&mut diagnostics, "project.name", &self.config.project.name);
+        require(
             &mut diagnostics,
             "project.namespace",
             &self.config.project.namespace,
         );
 
         if let Some(app) = &self.config.app {
-            validate_required_name(&mut diagnostics, "app.name", &app.name);
-            validate_required_name(&mut diagnostics, "app.command", &app.command);
-            validate_required_name(&mut diagnostics, "app.mode", &app.mode);
-            if let Some(socket) = &app.inspect_socket {
-                if let Err(error) = SocketEndpoint::parse(socket) {
+            require(&mut diagnostics, "app.name", &app.name);
+            require(&mut diagnostics, "app.command", &app.command);
+            require(&mut diagnostics, "app.mode", &app.mode);
+            if let Some(socket) = &app.socket {
+                if let Err(error) = socket::Endpoint::parse(socket) {
                     diagnostics.push(Diagnostic::error("app.inspect_socket", error.to_string()));
                 }
             }
             if let Some(ready) = &app.ready {
-                validate_required_name(&mut diagnostics, "app.ready.role", &ready.role);
+                require(&mut diagnostics, "app.ready.role", &ready.role);
             }
-            validate_stamp_forwarding(&mut diagnostics, "app", &app.command, &app.args);
+            caution(&mut diagnostics, "app", &app.command, &app.args);
         } else if self.config.sidecars.is_empty() {
             diagnostics.push(Diagnostic::warning(
                 "app",
@@ -72,24 +68,24 @@ impl DevState {
             ));
         }
 
-        let mut sidecar_names = HashSet::new();
+        let mut names = HashSet::new();
         for (index, sidecar) in self.config.sidecars.iter().enumerate() {
             let path = format!("sidecars[{index}]");
-            validate_required_name(&mut diagnostics, format!("{path}.name"), &sidecar.name);
-            validate_required_name(
+            require(&mut diagnostics, format!("{path}.name"), &sidecar.name);
+            require(
                 &mut diagnostics,
                 format!("{path}.command"),
                 &sidecar.command,
             );
-            validate_required_name(&mut diagnostics, format!("{path}.mode"), &sidecar.mode);
-            if !sidecar.name.trim().is_empty() && !sidecar_names.insert(sidecar.name.as_str()) {
+            require(&mut diagnostics, format!("{path}.mode"), &sidecar.mode);
+            if !sidecar.name.trim().is_empty() && !names.insert(sidecar.name.as_str()) {
                 diagnostics.push(Diagnostic::error(
                     format!("{path}.name"),
                     format!("duplicate sidecar name `{}`", sidecar.name),
                 ));
             }
-            if let Some(socket) = &sidecar.inspect_socket {
-                if let Err(error) = SocketEndpoint::parse(socket) {
+            if let Some(socket) = &sidecar.socket {
+                if let Err(error) = socket::Endpoint::parse(socket) {
                     diagnostics.push(Diagnostic::error(
                         format!("{path}.inspect_socket"),
                         error.to_string(),
@@ -97,18 +93,18 @@ impl DevState {
                 }
             }
             if let Some(ready) = &sidecar.ready {
-                validate_required_name(&mut diagnostics, format!("{path}.ready.role"), &ready.role);
+                require(&mut diagnostics, format!("{path}.ready.role"), &ready.role);
             }
-            validate_stamp_forwarding(&mut diagnostics, &path, &sidecar.command, &sidecar.args);
+            caution(&mut diagnostics, &path, &sidecar.command, &sidecar.args);
         }
 
-        let mut endpoint_names = HashSet::new();
+        let mut names = HashSet::new();
         for (index, endpoint) in self.config.inspect.endpoints.iter().enumerate() {
             let path = format!("inspect.endpoints[{index}]");
-            validate_required_name(&mut diagnostics, format!("{path}.name"), &endpoint.name);
-            validate_required_name(&mut diagnostics, format!("{path}.kind"), &endpoint.kind);
-            validate_required_name(&mut diagnostics, format!("{path}.url"), &endpoint.url);
-            if !endpoint.name.trim().is_empty() && !endpoint_names.insert(endpoint.name.as_str()) {
+            require(&mut diagnostics, format!("{path}.name"), &endpoint.name);
+            require(&mut diagnostics, format!("{path}.kind"), &endpoint.kind);
+            require(&mut diagnostics, format!("{path}.url"), &endpoint.url);
+            if !endpoint.name.trim().is_empty() && !names.insert(endpoint.name.as_str()) {
                 diagnostics.push(Diagnostic::error(
                     format!("{path}.name"),
                     format!("duplicate inspect endpoint name `{}`", endpoint.name),
@@ -119,24 +115,19 @@ impl DevState {
         diagnostics
     }
 
-    pub fn execution_plan(&self) -> ExecutionPlan {
-        ExecutionPlan::from_config(&self.config)
+    pub fn plan(&self) -> Plan {
+        self.config.plan()
     }
 }
 
-fn validate_required_name(diagnostics: &mut Vec<Diagnostic>, path: impl Into<String>, value: &str) {
+fn require(diagnostics: &mut Vec<Diagnostic>, path: impl Into<String>, value: &str) {
     if value.trim().is_empty() {
         diagnostics.push(Diagnostic::error(path, "value must not be empty"));
     }
 }
 
-fn validate_stamp_forwarding(
-    diagnostics: &mut Vec<Diagnostic>,
-    path: &str,
-    command: &str,
-    args: &[String],
-) {
-    if !is_cargo_command(command) || !cargo_run_needs_separator(args) {
+fn caution(diagnostics: &mut Vec<Diagnostic>, path: &str, command: &str, args: &[String]) {
+    if !cargo(command) || !swallows(args) {
         return;
     }
     diagnostics.push(Diagnostic::warning(
@@ -145,7 +136,7 @@ fn validate_stamp_forwarding(
     ));
 }
 
-fn is_cargo_command(command: &str) -> bool {
+fn cargo(command: &str) -> bool {
     command
         .rsplit(['/', '\\'])
         .next()
@@ -153,24 +144,24 @@ fn is_cargo_command(command: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn cargo_run_needs_separator(args: &[String]) -> bool {
-    let Some(run_index) = args.iter().position(|arg| arg == "run") else {
+fn swallows(args: &[String]) -> bool {
+    let Some(index) = args.iter().position(|arg| arg == "run") else {
         return false;
     };
-    !args.iter().skip(run_index + 1).any(|arg| arg == "--")
+    !args.iter().skip(index + 1).any(|arg| arg == "--")
 }
 
-impl fmt::Display for LoadError {
+impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LoadError::Read { path, source } => {
+            Error::Read { path, source } => {
                 write!(formatter, "failed to read {}: {source}", path.display())
             }
-            LoadError::Parse { path, source } => {
+            Error::Parse { path, source } => {
                 write!(formatter, "failed to parse {}: {source}", path.display())
             }
         }
     }
 }
 
-impl Error for LoadError {}
+impl std::error::Error for Error {}
