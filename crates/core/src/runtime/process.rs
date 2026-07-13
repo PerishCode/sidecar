@@ -25,7 +25,7 @@ impl Stamped {
     #[doc(hidden)]
     pub fn filter(rows: Vec<(u32, String)>, app: Option<&str>, namespace: &str) -> Vec<Stamped> {
         sift(rows, |args| {
-            stamp::read(args).is_some_and(|stamp| {
+            stamp::find(args).is_some_and(|stamp| {
                 app.is_none_or(|name| stamp.app == name) && stamp.namespace == namespace
             })
         })
@@ -43,7 +43,7 @@ impl Broker {
     #[doc(hidden)]
     pub fn filter(rows: Vec<(u32, String)>, project: &str, namespace: &str) -> Vec<Broker> {
         sift(rows, |args| {
-            broker::read(args).is_some_and(|identity| {
+            broker::find(args).is_some_and(|identity| {
                 identity.project == project && identity.namespace == namespace
             })
         })

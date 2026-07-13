@@ -179,7 +179,7 @@ pub fn flag(args: &[String]) -> Option<String> {
     None
 }
 
-pub fn read(args: &[String]) -> Option<Identity> {
+pub fn find(args: &[String]) -> Option<Identity> {
     flag(args).and_then(|value| Identity::decode(&value).ok())
 }
 

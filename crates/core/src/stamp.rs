@@ -44,7 +44,7 @@ pub fn flag(args: &[String]) -> Option<String> {
     None
 }
 
-pub fn read(args: &[String]) -> Option<Stamp> {
+pub fn find(args: &[String]) -> Option<Stamp> {
     flag(args).and_then(|value| decode(&value).ok())
 }
 
