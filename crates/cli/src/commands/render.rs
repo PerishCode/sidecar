@@ -4,6 +4,13 @@ use serde_json::{Map, Value};
 use sidecar_core::inspect;
 use sidecar_core::process::Stamped;
 
+pub(super) struct Listing<'a> {
+    pub(super) namespace: &'a str,
+    pub(super) hits: &'a [Stamped],
+    pub(super) broker: &'a Status,
+    pub(super) state: &'a Map<String, Value>,
+}
+
 pub(super) fn status(
     namespace: &str,
     rows: &[(String, Vec<u32>)],
@@ -16,16 +23,10 @@ pub(super) fn status(
     }
 }
 
-pub(super) fn list(
-    namespace: &str,
-    hits: &[Stamped],
-    broker: &Status,
-    state: &Map<String, Value>,
-    format: Format,
-) -> Result<(), String> {
+pub(super) fn list(listing: &Listing, format: Format) -> Result<(), String> {
     match format {
-        Format::Text => text::list(namespace, hits, broker, state),
-        Format::Json => json::list(namespace, hits, broker, state),
+        Format::Text => text::list(listing),
+        Format::Json => json::list(listing),
     }
 }
 
@@ -42,10 +43,9 @@ pub(super) fn inspect(
 }
 
 mod text {
-    use super::Status;
-    use serde_json::{Map, Value};
+    use super::{Listing, Status};
+    use serde_json::Value;
     use sidecar_core::inspect;
-    use sidecar_core::process::Stamped;
 
     pub(super) fn status(
         namespace: &str,
@@ -67,21 +67,16 @@ mod text {
         Ok(())
     }
 
-    pub(super) fn list(
-        namespace: &str,
-        hits: &[Stamped],
-        broker: &Status,
-        state: &Map<String, Value>,
-    ) -> Result<(), String> {
-        println!("namespace: {namespace}");
-        runtime(broker);
-        if hits.is_empty() {
+    pub(super) fn list(listing: &Listing) -> Result<(), String> {
+        println!("namespace: {}", listing.namespace);
+        runtime(listing.broker);
+        if listing.hits.is_empty() {
             println!("no stamped processes");
         }
-        for hit in hits {
+        for hit in listing.hits {
             println!("- pid={} cmd={}", hit.pid, hit.command);
         }
-        for (name, entry) in state {
+        for (name, entry) in listing.state {
             if let Some(pid) = entry.get("pid").and_then(Value::as_u64) {
                 println!("- target={name} pid={pid} source=state");
             }
@@ -117,10 +112,9 @@ mod text {
 }
 
 mod json {
-    use super::Status;
-    use serde_json::{Map, Value};
+    use super::{Listing, Status};
+    use serde_json::Value;
     use sidecar_core::inspect;
-    use sidecar_core::process::Stamped;
 
     pub(super) fn status(
         namespace: &str,
@@ -143,20 +137,15 @@ mod json {
         Ok(())
     }
 
-    pub(super) fn list(
-        namespace: &str,
-        hits: &[Stamped],
-        broker: &Status,
-        state: &Map<String, Value>,
-    ) -> Result<(), String> {
+    pub(super) fn list(listing: &Listing) -> Result<(), String> {
         let value = serde_json::json!({
-            "namespace": namespace,
-            "runtime": runtime(broker),
-            "processes": hits.iter().map(|hit| serde_json::json!({
+            "namespace": listing.namespace,
+            "runtime": runtime(listing.broker),
+            "processes": listing.hits.iter().map(|hit| serde_json::json!({
                 "pid": hit.pid,
                 "command": hit.command,
             })).collect::<Vec<_>>(),
-            "targets": state,
+            "targets": listing.state,
         });
         println!(
             "{}",
