@@ -55,13 +55,13 @@ pub fn run(build: &str) -> Result<(), String> {
     let tmpdir = scratch().map_err(|err| format!("failed to create tempdir: {err}"))?;
     let script = tmpdir.join(name);
 
-    let dl = Command::new("curl")
+    let fetched = Command::new("curl")
         .args(["-fsSL", "--max-time", &INSTALL.to_string(), "-o"])
         .arg(&script)
         .arg(&url)
         .status()
         .map_err(|err| format!("failed to invoke curl: {err}"))?;
-    if !dl.success() {
+    if !fetched.success() {
         let _ = fs::remove_dir_all(&tmpdir);
         return Err(format!("failed to download manager from {url}"));
     }

@@ -33,9 +33,9 @@ impl Endpoint {
             return Ok(Self::Unix(PathBuf::from(path)));
         }
 
-        if let Some(address) = value.strip_prefix(TCP) {
-            validate(address)?;
-            return Ok(Self::Tcp(address.to_string()));
+        if let Some(addr) = value.strip_prefix(TCP) {
+            validate(addr)?;
+            return Ok(Self::Tcp(addr.to_string()));
         }
 
         Err(Error::new(
@@ -48,7 +48,7 @@ impl std::fmt::Display for Endpoint {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unix(path) => write!(formatter, "unix://{}", path.display()),
-            Self::Tcp(address) => write!(formatter, "{TCP}{address}"),
+            Self::Tcp(addr) => write!(formatter, "{TCP}{addr}"),
         }
     }
 }
@@ -69,11 +69,11 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn validate(address: &str) -> Result<(), Error> {
-    if address.trim().is_empty() {
+fn validate(addr: &str) -> Result<(), Error> {
+    if addr.trim().is_empty() {
         return Err(Error::new("tcp socket endpoint must include host:port"));
     }
-    if !address.contains(':') {
+    if !addr.contains(':') {
         return Err(Error::new("tcp socket endpoint must include a port"));
     }
     Ok(())

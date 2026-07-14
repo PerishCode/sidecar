@@ -22,7 +22,7 @@ fn scratch(name: &str) -> std::path::PathBuf {
 #[test]
 fn omitted() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("tcp listener should bind");
-    let address = listener.local_addr().expect("listener address");
+    let addr = listener.local_addr().expect("listener address");
     let (tx, rx) = mpsc::channel();
 
     let handle = std::thread::spawn(move || {
@@ -63,7 +63,7 @@ namespace = "inspect-payload"
 name = "server"
 command = "sh"
 args = ["-c", "sleep 1"]
-inspect_socket = "tcp://{address}"
+inspect_socket = "tcp://{addr}"
 "#
         ),
     )
