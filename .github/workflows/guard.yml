@@ -24,7 +24,7 @@ jobs:
 
       - name: Install pinned negentropy
         run: |
-          curl -fsSL https://releases.negentropy.perish.uk/manage.sh | sh -s -- install --channel beta --version $(cat .runseal/negentropy.version) --bin-dir $HOME/.local/bin
+          curl -fsSL https://releases.negentropy.perish.uk/manage.sh | sh -s -- install --channel stable --version $(cat .runseal/negentropy.version) --bin-dir $HOME/.local/bin
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - uses: denoland/setup-deno@v2
