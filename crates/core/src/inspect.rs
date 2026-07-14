@@ -35,7 +35,7 @@ pub fn send(
 
     let raw = match endpoint {
         socket::Endpoint::Unix(path) => unix(path, &line, timeout)?,
-        socket::Endpoint::Tcp(address) => tcp(address, &line, timeout)?,
+        socket::Endpoint::Tcp(addr) => tcp(addr, &line, timeout)?,
     };
     parse(&raw, &id)
 }
@@ -118,8 +118,8 @@ fn unix(
     Err("unix inspect transport is not available on this platform".to_string())
 }
 
-fn tcp(address: &str, line: &str, timeout: Option<Duration>) -> Result<String, String> {
-    let mut stream = TcpStream::connect(address).map_err(|err| err.to_string())?;
+fn tcp(addr: &str, line: &str, timeout: Option<Duration>) -> Result<String, String> {
+    let mut stream = TcpStream::connect(addr).map_err(|err| err.to_string())?;
     if let Some(timeout) = timeout {
         let _ = stream.set_read_timeout(Some(timeout));
         let _ = stream.set_write_timeout(Some(timeout));

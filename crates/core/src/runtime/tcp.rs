@@ -85,13 +85,13 @@ pub fn table(
         if columns[3] != "0A" || !inodes.contains(columns[9]) {
             continue;
         }
-        addrs.push(address(columns[1])?);
+        addrs.push(addr(columns[1])?);
     }
     Ok(addrs)
 }
 
 #[cfg(target_os = "linux")]
-fn address(value: &str) -> Result<SocketAddr, String> {
+fn addr(value: &str) -> Result<SocketAddr, String> {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     let (addr, port) = value
