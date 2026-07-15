@@ -69,3 +69,15 @@ fn brokers() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].pid, 10);
 }
+
+#[cfg(unix)]
+#[test]
+fn gone() {
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", "exit 0"])
+        .spawn()
+        .expect("child should spawn");
+    let pid = child.id();
+    child.wait().expect("child should exit");
+    assert!(process::stop(pid).is_ok());
+}
