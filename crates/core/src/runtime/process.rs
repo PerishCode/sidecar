@@ -156,6 +156,9 @@ pub fn parse(text: &str) -> Vec<(u32, String)> {
 pub fn stop(pid: u32) -> Result<(), String> {
     #[cfg(unix)]
     {
+        if !exists(pid) {
+            return Ok(());
+        }
         let group = Command::new("kill")
             .args(["-TERM", "--", &format!("-{pid}")])
             .stdout(Stdio::null())
@@ -172,7 +175,7 @@ pub fn stop(pid: u32) -> Result<(), String> {
             .stderr(Stdio::null())
             .status()
             .map_err(|err| format!("kill failed: {err}"))?;
-        if status.success() {
+        if status.success() || !exists(pid) {
             Ok(())
         } else {
             Err(format!(
