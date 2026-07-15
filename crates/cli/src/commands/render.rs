@@ -4,6 +4,12 @@ use serde_json::{Map, Value};
 use sidecar_core::inspect;
 use sidecar_core::process::Stamped;
 
+pub(super) struct Row {
+    pub(super) name: String,
+    pub(super) pids: Vec<u32>,
+    pub(super) health: Option<String>,
+}
+
 pub(super) struct Listing<'a> {
     pub(super) namespace: &'a str,
     pub(super) hits: &'a [Stamped],
@@ -13,7 +19,7 @@ pub(super) struct Listing<'a> {
 
 pub(super) fn status(
     namespace: &str,
-    rows: &[(String, Vec<u32>)],
+    rows: &[Row],
     broker: &Status,
     format: Format,
 ) -> Result<(), String> {
@@ -43,28 +49,31 @@ pub(super) fn inspect(
 }
 
 mod text {
-    use super::{Listing, Status};
+    use super::{Listing, Row, Status};
     use serde_json::Value;
     use sidecar_core::inspect;
 
-    pub(super) fn status(
-        namespace: &str,
-        rows: &[(String, Vec<u32>)],
-        broker: &Status,
-    ) -> Result<(), String> {
+    pub(super) fn status(namespace: &str, rows: &[Row], broker: &Status) -> Result<(), String> {
         println!("namespace: {namespace}");
         runtime(broker);
-        for (name, pids) in rows {
-            if let Some(first) = pids.first() {
-                println!("- {name}: running (pid {})", first);
-                for extra in pids.iter().skip(1) {
+        for row in rows {
+            if let Some(first) = row.pids.first() {
+                println!("{}", line(row, *first));
+                for extra in row.pids.iter().skip(1) {
                     println!("  + duplicate (pid {})", extra);
                 }
             } else {
-                println!("- {name}: stopped");
+                println!("- {}: stopped", row.name);
             }
         }
         Ok(())
+    }
+
+    fn line(row: &Row, pid: u32) -> String {
+        match &row.health {
+            Some(health) => format!("- {}: running (pid {pid}) {health}", row.name),
+            None => format!("- {}: running (pid {pid})", row.name),
+        }
     }
 
     pub(super) fn list(listing: &Listing) -> Result<(), String> {
@@ -112,22 +121,19 @@ mod text {
 }
 
 mod json {
-    use super::{Listing, Status};
+    use super::{Listing, Row, Status};
     use serde_json::Value;
     use sidecar_core::inspect;
 
-    pub(super) fn status(
-        namespace: &str,
-        rows: &[(String, Vec<u32>)],
-        broker: &Status,
-    ) -> Result<(), String> {
+    pub(super) fn status(namespace: &str, rows: &[Row], broker: &Status) -> Result<(), String> {
         let value = serde_json::json!({
             "namespace": namespace,
             "runtime": runtime(broker),
-            "targets": rows.iter().map(|(name, pids)| serde_json::json!({
-                "name": name,
-                "running": !pids.is_empty(),
-                "pids": pids,
+            "targets": rows.iter().map(|row| serde_json::json!({
+                "name": row.name,
+                "running": !row.pids.is_empty(),
+                "pids": row.pids,
+                "healthUrl": row.health,
             })).collect::<Vec<_>>(),
         });
         println!(

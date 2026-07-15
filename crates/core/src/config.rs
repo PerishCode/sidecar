@@ -43,6 +43,8 @@ pub struct App {
     pub inherits: Vec<Inherit>,
     #[serde(default, rename = "inspect_socket")]
     pub socket: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
     #[serde(default, rename = "health_url")]
     pub health: Option<String>,
     #[serde(default)]
@@ -66,6 +68,8 @@ pub struct Sidecar {
     pub inherits: Vec<Inherit>,
     #[serde(default, rename = "inspect_socket")]
     pub socket: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
     #[serde(default, rename = "health_url")]
     pub health: Option<String>,
     #[serde(default)]

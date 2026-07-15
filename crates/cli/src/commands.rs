@@ -3,15 +3,17 @@ mod runtime;
 
 use crate::cli::Format;
 use runtime::{Broker, Chain, Launch};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sidecar_core::plan::{Plan, Target};
 use sidecar_core::{inspect, process, socket, Paths, State};
 use std::fs::{self, OpenOptions};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const SOCKET: &str = "SIDECAR_INSPECT_SOCKET";
+const PORT: &str = "SIDECAR_PORT";
 
 pub(crate) struct Session {
     pub(crate) state: State,
@@ -89,10 +91,15 @@ impl Session {
 
     pub(crate) fn status(&self, format: Format) -> Result<(), String> {
         let plan = self.state.plan();
+        let state = runtime::state::load(&self.paths)?;
         let mut rows = Vec::new();
         for target in &plan.targets {
             let pids = runtime::running(&self.paths, target)?;
-            rows.push((target.name.clone(), pids));
+            rows.push(render::Row {
+                name: target.name.clone(),
+                pids,
+                health: health(target, &state),
+            });
         }
         let broker = Broker::new(&plan).status()?;
         render::status(&plan.namespace, &rows, &broker, format)
@@ -208,6 +215,10 @@ impl Session {
         if let Some(socket) = &target.socket {
             command.env(SOCKET, socket);
         }
+        let port = lease(target)?;
+        if let Some(port) = port {
+            command.env(PORT, port.to_string());
+        }
         runtime::detach(&mut command);
         let mut child = command
             .spawn()
@@ -226,6 +237,7 @@ impl Session {
             pid,
             ready,
             log: path,
+            port,
         })
     }
 
@@ -243,6 +255,29 @@ impl Session {
     fn log(&self, name: &str) -> PathBuf {
         self.paths.project.join("logs").join(format!("{name}.log"))
     }
+}
+
+fn lease(target: &Target) -> Result<Option<u16>, String> {
+    match target.port {
+        Some(0) => {
+            let listener = TcpListener::bind(("127.0.0.1", 0))
+                .map_err(|err| format!("failed to lease a port for `{}`: {err}", target.name))?;
+            let local = listener
+                .local_addr()
+                .map_err(|err| format!("failed to read the leased port: {err}"))?;
+            Ok(Some(local.port()))
+        }
+        other => Ok(other),
+    }
+}
+
+fn health(target: &Target, state: &Map<String, Value>) -> Option<String> {
+    let template = target.health.as_ref()?;
+    if !template.contains("{port}") {
+        return Some(template.clone());
+    }
+    let port = state.get(&target.name)?.get("port")?.as_u64()?;
+    Some(template.replace("{port}", &port.to_string()))
 }
 
 fn purge(path: &Path, label: &str) -> Result<(), String> {

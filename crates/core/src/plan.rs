@@ -26,6 +26,7 @@ pub struct App {
     pub env: BTreeMap<String, String>,
     pub inherits: Vec<Inherit>,
     pub socket: Option<String>,
+    pub port: Option<u16>,
     pub health: Option<String>,
     pub ready: Option<Ready>,
 }
@@ -40,6 +41,7 @@ pub struct Sidecar {
     pub env: BTreeMap<String, String>,
     pub inherits: Vec<Inherit>,
     pub socket: Option<String>,
+    pub port: Option<u16>,
     pub health: Option<String>,
     pub ready: Option<Ready>,
 }
@@ -55,6 +57,7 @@ pub struct Target {
     pub env: BTreeMap<String, String>,
     pub inherits: Vec<Inherit>,
     pub socket: Option<String>,
+    pub port: Option<u16>,
     pub health: Option<String>,
     pub ready: Option<Ready>,
 }
@@ -120,6 +123,7 @@ impl Manifest {
                 env: plan.env,
                 inherits: plan.inherits,
                 socket: plan.socket,
+                port: plan.port,
                 health: plan.health,
                 ready: plan.ready,
             }
@@ -136,6 +140,7 @@ impl Manifest {
                 env: plan.env,
                 inherits: plan.inherits,
                 socket: plan.socket,
+                port: plan.port,
                 health: plan.health,
                 ready: plan.ready,
             });
@@ -166,6 +171,7 @@ impl config::App {
                 .socket
                 .as_ref()
                 .map(|value| expand(value, project, &self.name)),
+            port: self.port,
             health: self.health.clone(),
             ready: self.ready.as_ref().map(config::Ready::plan),
         }
@@ -194,6 +200,7 @@ impl config::Sidecar {
                 .socket
                 .as_ref()
                 .map(|value| expand(value, project, &self.name)),
+            port: self.port,
             health: self.health.clone(),
             ready: self.ready.as_ref().map(config::Ready::plan),
         }
