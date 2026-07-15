@@ -143,9 +143,18 @@ Top-level shape:
 - `[project]`: `name`, `namespace`, optional `root`, optional `data_dir`
 - `[[sidecars]]`: background service targets, launched in declaration order
 - `[app]`: optional foreground app target, launched after sidecars
-- per target: `name`, `command`, `args`, `cwd`, `mode`, `env`, `inspect_socket`, `inherits_env`, `ready`
+- per target: `name`, `command`, `args`, `cwd`, `mode`, `env`, `inspect_socket`, `inherits_env`, `port`, `health_url`, `ready`
 
 `inspect_socket` supports `{project}`, `{namespace}`, and `{name}` templates.
+
+`port` puts the target's listen port under sidecar's control: `port = 0` leases
+a free loopback port at every start; any other value pins it. The resolved port
+is injected into the target's env as `SIDECAR_PORT`, recorded in target state,
+and substituted into the `{port}` template of `health_url`. The target stays
+business-unaware: it reads one env var and binds. `status` prints the resolved
+`health_url` next to each running target (text) and as `healthUrl` (JSON), so
+consumers discover the live address from `sidecar status --format json` instead
+of hardcoding it.
 
 ## Broker Runtime
 

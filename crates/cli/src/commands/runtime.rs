@@ -25,6 +25,7 @@ pub(crate) struct Launch {
     pub(crate) pid: u32,
     pub(crate) ready: Option<Ready>,
     pub(crate) log: std::path::PathBuf,
+    pub(crate) port: Option<u16>,
 }
 
 pub(crate) struct Broker<'a> {
@@ -306,6 +307,7 @@ pub(crate) mod state {
                 "mode": target.stamp.mode,
                 "source": target.stamp.source,
                 "inspectSocket": target.socket,
+                "port": launch.port,
                 "logPath": launch.log.display().to_string(),
                 "ready": launch.ready.as_ref().map(|ready| serde_json::json!({
                     "role": ready.role,

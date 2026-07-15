@@ -187,6 +187,49 @@ fn endpoint() {
     assert!(stamp.contains(";e=tcp%3A%2F%2F127.0.0.1%3A4100"));
 }
 
+#[test]
+fn leased() {
+    let state = seed(
+        r#"
+        [project]
+        name = "site"
+
+        [app]
+        name = "web"
+        command = "pnpm"
+        port = 0
+        health_url = "http://127.0.0.1:{port}"
+        "#,
+    );
+
+    let plan = state.plan();
+    let app = plan.app.expect("app should plan");
+    assert_eq!(app.port, Some(0));
+    assert_eq!(app.health.as_deref(), Some("http://127.0.0.1:{port}"));
+    let target = plan.targets.first().expect("target should exist");
+    assert_eq!(target.port, Some(0));
+}
+
+#[test]
+fn pinned() {
+    let state = seed(
+        r#"
+        [project]
+        name = "site"
+
+        [[sidecars]]
+        name = "api"
+        command = "cargo"
+        port = 3901
+        "#,
+    );
+
+    let plan = state.plan();
+    let target = plan.targets.first().expect("target should exist");
+    assert_eq!(target.port, Some(3901));
+    assert_eq!(target.health, None);
+}
+
 fn seed(text: &str) -> State {
     State {
         path: PathBuf::from("inline.toml"),
