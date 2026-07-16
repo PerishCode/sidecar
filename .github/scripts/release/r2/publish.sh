@@ -112,9 +112,9 @@ metadata = {
     },
     "artifacts": {
         "linuxX64": artifact("sidecar-x86_64-unknown-linux-gnu.tar.gz", "application/gzip"),
-        "macArm64": artifact("sidecar-aarch64-apple-darwin.tar.gz", "application/gzip"),
-        "macX64": artifact("sidecar-x86_64-apple-darwin.tar.gz", "application/gzip"),
-        "winX64": artifact("sidecar-x86_64-pc-windows-msvc.zip", "application/zip"),
+        "darwinArm64": artifact("sidecar-aarch64-apple-darwin.tar.gz", "application/gzip"),
+        "darwinX64": artifact("sidecar-x86_64-apple-darwin.tar.gz", "application/gzip"),
+        "windowsX64": artifact("sidecar-x86_64-pc-windows-msvc.zip", "application/zip"),
         "checksums": artifact("checksums.txt", "text/plain; charset=utf-8"),
     },
 }
