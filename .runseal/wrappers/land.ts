@@ -7,6 +7,7 @@ type Options = {
   base: string;
   body: string;
   dry: boolean;
+  watch: boolean;
 };
 
 const budget = 240_000;
@@ -37,6 +38,10 @@ const sha = await bin("git").text(["rev-parse", "HEAD"]);
 
 const url = await pull(options, branch);
 io.print(url);
+if (!options.watch) {
+  io.print("land: PR is up; guard not awaited (--watch=false)");
+  Deno.exit(0);
+}
 await guarded(sha);
 await bin("gh").run([
   "pr",
@@ -61,6 +66,8 @@ function usage(): void {
   io.print("exact pushed head commit are awaited, the PR is squash-merged against");
   io.print("that same commit, main is synced, and the topic branch is deleted.");
   io.print("");
+  io.print("  --watch=false      stop once the PR exists; skip the guard wait and merge");
+  io.print("");
   io.print("Options:");
   io.print("  --base <branch>    base branch (default: main)");
   io.print("  --body <body>      pull request body override");
@@ -70,13 +77,15 @@ function usage(): void {
 function parse(args: string[]): Options & { help: boolean } {
   const parsed = cli.parse(args, {
     string: ["base", "body"],
-    boolean: ["dry-run", "help", "h"],
+    boolean: ["dry-run", "watch", "help", "h"],
+    default: { watch: true },
   });
   flags(parsed).positionals("land", { allowHelp: true });
   return {
     base: flags(parsed).string("base", "main"),
     body: flags(parsed).string("body"),
     dry: flags(parsed).boolean("dry-run"),
+    watch: parsed.watch === true,
     help: flags(parsed).help(),
   };
 }
