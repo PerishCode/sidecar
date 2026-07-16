@@ -1,18 +1,27 @@
-import { cli, flags } from "@/lib/cli.ts";
-import { bin } from "@/lib/std/cmd.ts";
-import { io } from "@/lib/std/io.ts";
-import { negentropy } from "@/lib/negentropy.ts";
+import { cache } from "@perish/harness/cache";
+import { cli, flags } from "@perish/harness/cli";
+import { bin } from "@perish/harness/cmd";
+import { io } from "@perish/harness/io";
+import { negentropy } from "@perish/harness/negentropy";
 
 function usage(): void {
-  io.print("Usage: runseal :guard");
+  io.print("Usage: runseal :guard [--fresh]");
   io.print("");
   io.print("Run repository guard checks.");
+  io.print("");
+  io.print("  --fresh   ignore the guard cache and run the full gauntlet");
 }
 
-const args = cli.parse(Deno.args, { boolean: ["help", "h"] });
+const args = cli.parse(Deno.args, { boolean: ["help", "h", "fresh"] });
 flags(args).positionals("guard", { allowHelp: true });
 if (flags(args).help()) {
   usage();
+  Deno.exit(0);
+}
+
+const mark = await cache.key();
+if (args.fresh !== true && (await cache.hit(mark))) {
+  io.print(`guard: clean (cached ${mark.slice(0, 12)})`);
   Deno.exit(0);
 }
 
@@ -52,3 +61,5 @@ await bin("deno").run([
 io.print("==> negentropy");
 await negentropy.verify();
 await bin("negentropy").run(["--strict", "."]);
+
+await cache.keep(mark);

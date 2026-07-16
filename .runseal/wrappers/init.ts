@@ -1,9 +1,9 @@
-import { cli, flags } from "@/lib/cli.ts";
-import { bin, exists } from "@/lib/std/cmd.ts";
-import { fs } from "@/lib/std/fs.ts";
-import { io } from "@/lib/std/io.ts";
-import { negentropy } from "@/lib/negentropy.ts";
-import { path } from "@/lib/std/path.ts";
+import { cli, flags } from "@perish/harness/cli";
+import { bin, exists } from "@perish/harness/cmd";
+import { fs } from "@perish/harness/fs";
+import { io } from "@perish/harness/io";
+import { negentropy } from "@perish/harness/negentropy";
+import { path } from "@perish/harness/path";
 
 class Check {
   static async tool(name: string): Promise<void> {
@@ -64,13 +64,6 @@ for (
     ".runseal/deno.json",
     ".runseal/deno.lock",
     ".runseal/negentropy.version",
-    ".runseal/lib/cli.ts",
-    ".runseal/lib/negentropy.ts",
-    ".runseal/lib/std/cmd.ts",
-    ".runseal/lib/std/fs.ts",
-    ".runseal/lib/std/io.ts",
-    ".runseal/lib/std/json.ts",
-    ".runseal/lib/std/path.ts",
     ".runseal/wrappers/guard.ts",
     ".runseal/wrappers/init.ts",
     ".runseal/wrappers/land.ts",

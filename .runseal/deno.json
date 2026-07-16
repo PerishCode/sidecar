@@ -1,7 +1,6 @@
 {
   "imports": {
-    "@/lib/": "./lib/",
-    "@std/cli/parse-args": "jsr:@std/cli@1.0.30/parse-args"
+    "@perish/harness": "jsr:@perish/harness@0.1.0-beta.2"
   },
   "compilerOptions": {
     "strict": true

@@ -1,7 +1,7 @@
-import { cli, flags } from "@/lib/cli.ts";
-import { bin } from "@/lib/std/cmd.ts";
-import { io } from "@/lib/std/io.ts";
-import { doc } from "@/lib/std/json.ts";
+import { cli, flags } from "@perish/harness/cli";
+import { bin } from "@perish/harness/cmd";
+import { io } from "@perish/harness/io";
+import { doc } from "@perish/harness/json";
 
 type Options = {
   base: string;
